@@ -1,0 +1,15 @@
+.wallet-adapter-button {
+    background-color: #512da8 !important;
+    border: none !important;
+    border-radius: 0.375rem !important;
+    padding: 0.5rem 1rem !important;
+    font-size: 1rem !important;
+}
+
+.wallet-adapter-button:hover {
+    background-color: #4527a0 !important;
+}
+
+.wallet-adapter-modal-wrapper {
+    background-color: #1a1f2e !important;
+} 
