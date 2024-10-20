@@ -1,6 +1,7 @@
 import { Box, Container, Heading, Tabs, TabList, TabPanels, Tab, TabPanel } from '@chakra-ui/react';
 import { WalletButton } from '../components/WalletButton';
-
+import { CreateToken } from '../components/CreateToken';
+import { MintToken } from '../components/MintToken';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { TokenList } from '../components/TokenList';
 
@@ -32,7 +33,7 @@ export default function Home() {
                                 <TokenList />
                             </TabPanel>
                             <TabPanel>
-                                
+                                <CreateToken />
                             </TabPanel>
                             <TabPanel>
                                 
