@@ -36,7 +36,7 @@ export default function Home() {
                                 <CreateToken />
                             </TabPanel>
                             <TabPanel>
-                                
+                                <MintToken />
                             </TabPanel>
                         </TabPanels>
                     </Tabs>
