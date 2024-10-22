@@ -4,6 +4,7 @@ import { CreateToken } from '../components/CreateToken';
 import { MintToken } from '../components/MintToken';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { TokenList } from '../components/TokenList';
+import { TokenMetadata } from '../components/TokenMetadata';
 
 export default function Home() {
     const { publicKey } = useWallet();
@@ -25,7 +26,9 @@ export default function Home() {
                         <TabList>
                             <Tab>代币列表</Tab>
                             <Tab>创建代币&关联ATA账户</Tab>
+                            <Tab>设置元数据</Tab>
                             <Tab>铸造代币</Tab>
+                            
                         </TabList>
 
                         <TabPanels>
@@ -34,6 +37,9 @@ export default function Home() {
                             </TabPanel>
                             <TabPanel>
                                 <CreateToken />
+                            </TabPanel>                            
+                            <TabPanel>
+                                <TokenMetadata />
                             </TabPanel>
                             <TabPanel>
                                 <MintToken />
