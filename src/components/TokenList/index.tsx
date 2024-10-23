@@ -17,10 +17,14 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
     TOKEN_PROGRAM_ID,
     getAccount,
-    getAssociatedTokenAddress,
+    getMint,
 } from '@solana/spl-token';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { CopyIcon, RepeatIcon } from '@chakra-ui/icons';
+import { 
+    Metadata, 
+    PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID 
+} from '@metaplex-foundation/mpl-token-metadata';
 
 interface TokenAccount {
     mint: string;
@@ -28,6 +32,7 @@ interface TokenAccount {
     decimals: number;
     symbol?: string;
     name?: string;
+    uri?: string;
 }
 
 export const TokenList = () => {
@@ -39,6 +44,18 @@ export const TokenList = () => {
     const [sendAddress, setSendAddress] = useState('');
     const [sendAmount, setSendAmount] = useState('');
     const toast = useToast();
+
+    const getMetadataAddress = (mintPubkey: PublicKey) => {
+        const [metadataAddress] = PublicKey.findProgramAddressSync(
+            [
+                Buffer.from('metadata'),
+                TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+                mintPubkey.toBuffer(),
+            ],
+            TOKEN_METADATA_PROGRAM_ID
+        );
+        return metadataAddress;
+    };
 
     const fetchTokens = async () => {
         if (!publicKey) return;
@@ -57,14 +74,40 @@ export const TokenList = () => {
                 { programId: TOKEN_PROGRAM_ID }
             );
 
-            const tokenAccounts = accounts.value.map(account => {
+            const tokenAccounts = await Promise.all(accounts.value.map(async account => {
                 const parsedInfo = account.account.data.parsed.info;
-                return {
-                    mint: parsedInfo.mint,
-                    amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
-                    decimals: parsedInfo.tokenAmount.decimals,
-                };
-            });
+                const mintPubkey = new PublicKey(parsedInfo.mint);
+                
+                // 获取元数据地址
+                const metadataAddress = getMetadataAddress(mintPubkey);
+                
+                try {
+                    // 获取元数据账户信息
+                    const metadataAccount = await connection.getAccountInfo(metadataAddress);
+                    let metadata;
+                    if (metadataAccount) {
+                        metadata = await Metadata.fromAccountAddress(connection, metadataAddress);
+                    }
+
+                    return {
+                        mint: parsedInfo.mint,
+                        amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
+                        decimals: parsedInfo.tokenAmount.decimals,
+                        symbol: metadata?.data.symbol || '未知代币',
+                        name: metadata?.data.name || '未知名称',
+                        uri: metadata?.data.uri,
+                    };
+                } catch (error) {
+                    console.error("获取元数据错误:", error);
+                    return {
+                        mint: parsedInfo.mint,
+                        amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
+                        decimals: parsedInfo.tokenAmount.decimals,
+                        symbol: '未知代币',
+                        name: '未知名称',
+                    };
+                }
+            }));
 
             setTokens(tokenAccounts);
 
@@ -132,7 +175,7 @@ export const TokenList = () => {
 
                 <Text fontSize="xl" mt={4}>代币列表</Text>
                 
-                {tokens.map((token, index) => (
+                {tokens.map((token) => (
                     <Box 
                         key={token.mint}
                         p={4}
@@ -143,7 +186,7 @@ export const TokenList = () => {
                         <HStack justify="space-between">
                             <VStack align="start" spacing={1}>
                                 <Text fontWeight="bold">
-                                    {token.symbol || '未命名代币'}
+                                    {token.name} ({token.symbol})
                                 </Text>
                                 <Text fontSize="sm" color="gray.500">
                                     余额: {token.amount}
