@@ -26,6 +26,14 @@ import {
     PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID 
 } from '@metaplex-foundation/mpl-token-metadata';
 
+interface TokenMetadataJson {
+    name: string;
+    symbol: string;
+    description: string;
+    image: string;
+    // 可能还有其他字段
+}
+
 interface TokenAccount {
     mint: string;
     amount: number;
@@ -33,6 +41,7 @@ interface TokenAccount {
     symbol?: string;
     name?: string;
     uri?: string;
+    image?: string;
 }
 
 export const TokenList = () => {
@@ -55,6 +64,17 @@ export const TokenList = () => {
             TOKEN_METADATA_PROGRAM_ID
         );
         return metadataAddress;
+    };
+
+    const fetchMetadataJson = async (uri: string) => {
+        try {
+            const response = await fetch(uri);
+            const json: TokenMetadataJson = await response.json();
+            return json;
+        } catch (error) {
+            console.error("获取元数据 JSON 错误:", error);
+            return null;
+        }
     };
 
     const fetchTokens = async () => {
@@ -85,8 +105,12 @@ export const TokenList = () => {
                     // 获取元数据账户信息
                     const metadataAccount = await connection.getAccountInfo(metadataAddress);
                     let metadata;
+                    let metadataJson;
                     if (metadataAccount) {
                         metadata = await Metadata.fromAccountAddress(connection, metadataAddress);
+                        if (metadata.data.uri) {
+                            metadataJson = await fetchMetadataJson(metadata.data.uri);
+                        }
                     }
 
                     return {
@@ -96,6 +120,7 @@ export const TokenList = () => {
                         symbol: metadata?.data.symbol || '未知代币',
                         name: metadata?.data.name || '未知名称',
                         uri: metadata?.data.uri,
+                        image: metadataJson?.image,
                     };
                 } catch (error) {
                     console.error("获取元数据错误:", error);
@@ -184,25 +209,57 @@ export const TokenList = () => {
                         _hover={{ bg: "gray.50" }}
                     >
                         <HStack justify="space-between">
-                            <VStack align="start" spacing={1}>
-                                <Text fontWeight="bold">
-                                    {token.name} ({token.symbol})
-                                </Text>
-                                <Text fontSize="sm" color="gray.500">
-                                    余额: {token.amount}
-                                </Text>
-                                <HStack>
-                                    <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
-                                        {token.mint}
+                            <HStack spacing={4}>
+                                {token.image && (
+                                    <Box 
+                                        width="40px" 
+                                        height="40px" 
+                                        borderRadius="full" 
+                                        overflow="hidden"
+                                    >
+                                        <Image
+                                            src={token.image}
+                                            alt={token.name || "Token image"}
+                                            width="100%"
+                                            height="100%"
+                                            objectFit="cover"
+                                            fallback={
+                                                <Box 
+                                                    width="100%" 
+                                                    height="100%" 
+                                                    bg="gray.200" 
+                                                    display="flex" 
+                                                    alignItems="center" 
+                                                    justifyContent="center"
+                                                >
+                                                    <Text fontSize="xs">
+                                                        {token.symbol?.[0] || "?"}
+                                                    </Text>
+                                                </Box>
+                                            }
+                                        />
+                                    </Box>
+                                )}
+                                <VStack align="start" spacing={1}>
+                                    <Text fontWeight="bold">
+                                        {token.name} ({token.symbol})
                                     </Text>
-                                    <IconButton
-                                        aria-label="Copy address"
-                                        icon={<CopyIcon />}
-                                        size="xs"
-                                        onClick={() => copyAddress(token.mint)}
-                                    />
-                                </HStack>
-                            </VStack>
+                                    <Text fontSize="sm" color="gray.500">
+                                        余额: {token.amount}
+                                    </Text>
+                                    <HStack>
+                                        <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
+                                            {token.mint}
+                                        </Text>
+                                        <IconButton
+                                            aria-label="Copy address"
+                                            icon={<CopyIcon />}
+                                            size="xs"
+                                            onClick={() => copyAddress(token.mint)}
+                                        />
+                                    </HStack>
+                                </VStack>
+                            </HStack>
                             <HStack>
                                 <Button size="sm" colorScheme="blue">
                                     转账
