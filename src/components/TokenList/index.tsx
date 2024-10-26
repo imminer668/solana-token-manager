@@ -12,6 +12,11 @@ import {
     Input,
     NumberInput,
     NumberInputField,
+    Tabs,
+    TabList,
+    Tab,
+    TabPanels,
+    TabPanel,
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
@@ -42,6 +47,8 @@ interface TokenAccount {
     name?: string;
     uri?: string;
     image?: string;
+    mintAuthority?: string;
+    freezeAuthority?: string;
 }
 
 export const TokenList = () => {
@@ -53,6 +60,7 @@ export const TokenList = () => {
     const [sendAddress, setSendAddress] = useState('');
     const [sendAmount, setSendAmount] = useState('');
     const toast = useToast();
+    const [managedTokens, setManagedTokens] = useState<TokenAccount[]>([]);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -98,6 +106,9 @@ export const TokenList = () => {
                 const parsedInfo = account.account.data.parsed.info;
                 const mintPubkey = new PublicKey(parsedInfo.mint);
                 
+                // 获取代币铸造账户信息
+                const mintInfo = await getMint(connection, mintPubkey);
+                
                 // 获取元数据地址
                 const metadataAddress = getMetadataAddress(mintPubkey);
                 
@@ -121,6 +132,8 @@ export const TokenList = () => {
                         name: metadata?.data.name || '未知名称',
                         uri: metadata?.data.uri,
                         image: metadataJson?.image,
+                        mintAuthority: mintInfo.mintAuthority?.toBase58(),
+                        freezeAuthority: mintInfo.freezeAuthority?.toBase58(),
                     };
                 } catch (error) {
                     console.error("获取元数据错误:", error);
@@ -135,6 +148,13 @@ export const TokenList = () => {
             }));
 
             setTokens(tokenAccounts);
+            
+            // 过滤出当前用户有权限管理的代币
+            const managed = tokenAccounts.filter(token => 
+                (token.mintAuthority === publicKey.toBase58() || 
+                token.freezeAuthority === publicKey.toBase58())
+            );
+            setManagedTokens(managed);
 
         } catch (error) {
             console.error("获取代币列表错误:", error);
@@ -162,6 +182,86 @@ export const TokenList = () => {
     useEffect(() => {
         fetchTokens();
     }, [publicKey]);
+
+    const TokenCard = ({ token }: { token: TokenAccount }) => (
+        <Box 
+            key={token.mint}
+            p={4}
+            borderWidth={1}
+            borderRadius="md"
+            _hover={{ bg: "gray.50" }}
+        >
+            <HStack justify="space-between">
+                <HStack spacing={4}>
+                    {token.image && (
+                        <Box 
+                            width="40px" 
+                            height="40px" 
+                            borderRadius="full" 
+                            overflow="hidden"
+                        >
+                            <Image
+                                src={token.image}
+                                alt={token.name || "Token image"}
+                                width="100%"
+                                height="100%"
+                                objectFit="cover"
+                                fallback={
+                                    <Box 
+                                        width="100%" 
+                                        height="100%" 
+                                        bg="gray.200" 
+                                        display="flex" 
+                                        alignItems="center" 
+                                        justifyContent="center"
+                                    >
+                                        <Text fontSize="xs">
+                                            {token.symbol?.[0] || "?"}
+                                        </Text>
+                                    </Box>
+                                }
+                            />
+                        </Box>
+                    )}
+                    <VStack align="start" spacing={1}>
+                        <Text fontWeight="bold">
+                            {token.name} ({token.symbol})
+                        </Text>
+                        <Text fontSize="sm" color="gray.500">
+                            余额: {token.amount}
+                        </Text>
+                        <HStack>
+                            <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
+                                {token.mint}
+                            </Text>
+                            <IconButton
+                                aria-label="Copy address"
+                                icon={<CopyIcon />}
+                                size="xs"
+                                onClick={() => copyAddress(token.mint)}
+                            />
+                        </HStack>
+                        {(token.mintAuthority === publicKey?.toBase58() || 
+                         token.freezeAuthority === publicKey?.toBase58()) && (
+                            <Text fontSize="xs" color="green.500">
+                                您是此代币的管理员
+                            </Text>
+                        )}
+                    </VStack>
+                </HStack>
+                <HStack>
+                    <Button size="sm" colorScheme="blue">
+                        转账
+                    </Button>
+                    {token.mintAuthority === publicKey?.toBase58() && (
+                        <Button size="sm" colorScheme="green">
+                            铸币
+                        </Button>
+                    )}
+                </HStack>
+            </HStack>
+        </Box>
+    );
 
     return (
         <Box p={4}>
@@ -198,79 +298,35 @@ export const TokenList = () => {
                     </Button>
                 </Box>
 
-                <Text fontSize="xl" mt={4}>代币列表</Text>
-                
-                {tokens.map((token) => (
-                    <Box 
-                        key={token.mint}
-                        p={4}
-                        borderWidth={1}
-                        borderRadius="md"
-                        _hover={{ bg: "gray.50" }}
-                    >
-                        <HStack justify="space-between">
-                            <HStack spacing={4}>
-                                {token.image && (
-                                    <Box 
-                                        width="40px" 
-                                        height="40px" 
-                                        borderRadius="full" 
-                                        overflow="hidden"
-                                    >
-                                        <Image
-                                            src={token.image}
-                                            alt={token.name || "Token image"}
-                                            width="100%"
-                                            height="100%"
-                                            objectFit="cover"
-                                            fallback={
-                                                <Box 
-                                                    width="100%" 
-                                                    height="100%" 
-                                                    bg="gray.200" 
-                                                    display="flex" 
-                                                    alignItems="center" 
-                                                    justifyContent="center"
-                                                >
-                                                    <Text fontSize="xs">
-                                                        {token.symbol?.[0] || "?"}
-                                                    </Text>
-                                                </Box>
-                                            }
-                                        />
-                                    </Box>
+                <Tabs>
+                    <TabList>
+                        <Tab>所有代币</Tab>
+                        <Tab>我管理的代币</Tab>
+                    </TabList>
+
+                    <TabPanels>
+                        <TabPanel>
+                            <VStack spacing={4} align="stretch">
+                                {tokens.map((token) => (
+                                    <TokenCard key={token.mint} token={token} />
+                                ))}
+                            </VStack>
+                        </TabPanel>
+                        <TabPanel>
+                            <VStack spacing={4} align="stretch">
+                                {managedTokens.length > 0 ? (
+                                    managedTokens.map((token) => (
+                                        <TokenCard key={token.mint} token={token} />
+                                    ))
+                                ) : (
+                                    <Text color="gray.500" textAlign="center">
+                                        没有找到您管理的代币
+                                    </Text>
                                 )}
-                                <VStack align="start" spacing={1}>
-                                    <Text fontWeight="bold">
-                                        {token.name} ({token.symbol})
-                                    </Text>
-                                    <Text fontSize="sm" color="gray.500">
-                                        余额: {token.amount}
-                                    </Text>
-                                    <HStack>
-                                        <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
-                                            {token.mint}
-                                        </Text>
-                                        <IconButton
-                                            aria-label="Copy address"
-                                            icon={<CopyIcon />}
-                                            size="xs"
-                                            onClick={() => copyAddress(token.mint)}
-                                        />
-                                    </HStack>
-                                </VStack>
-                            </HStack>
-                            <HStack>
-                                <Button size="sm" colorScheme="blue">
-                                    转账
-                                </Button>
-                                <Button size="sm" colorScheme="green">
-                                    铸币
-                                </Button>
-                            </HStack>
-                        </HStack>
-                    </Box>
-                ))}
+                            </VStack>
+                        </TabPanel>
+                    </TabPanels>
+                </Tabs>
             </VStack>
         </Box>
     );
