@@ -17,6 +17,12 @@ import {
     Tab,
     TabPanels,
     TabPanel,
+    Spinner,
+    Alert,
+    AlertIcon,
+    AlertTitle,
+    AlertDescription,
+    Center,
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
@@ -61,6 +67,9 @@ export const TokenList = () => {
     const [sendAmount, setSendAmount] = useState('');
     const toast = useToast();
     const [managedTokens, setManagedTokens] = useState<TokenAccount[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [isTimedOut, setIsTimedOut] = useState(false);
+    const FETCH_TIMEOUT = 30000; // 30 秒超时
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -90,80 +99,91 @@ export const TokenList = () => {
 
         try {
             setIsLoading(true);
+            setError(null);
+            setIsTimedOut(false);
 
-            // 获取 SOL 余额
-            const balance = await connection.getBalance(publicKey);
-            setSolBalance(balance / LAMPORTS_PER_SOL);
+            // 添加超时处理
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error('获取代币列表超时，请检查网络连接后重试'));
+                }, FETCH_TIMEOUT);
+            });
 
-            //得确保你的网络能访问solana的rpc，否则会报错
-            // 获取所有代币账户
-            const accounts = await connection.getParsedTokenAccountsByOwner(
-                publicKey,
-                { programId: TOKEN_PROGRAM_ID }
-            );
+            // 原有的获取代币逻辑
+            const fetchPromise = (async () => {
+                const balance = await connection.getBalance(publicKey);
+                setSolBalance(balance / LAMPORTS_PER_SOL);
 
-            const tokenAccounts = await Promise.all(accounts.value.map(async account => {
-                const parsedInfo = account.account.data.parsed.info;
-                const mintPubkey = new PublicKey(parsedInfo.mint);
-                
-                // 获取代币铸造账户信息
-                const mintInfo = await getMint(connection, mintPubkey);
-                
-                // 获取元数据地址
-                const metadataAddress = getMetadataAddress(mintPubkey);
-                
-                try {
-                    // 获取元数据账户信息
-                    const metadataAccount = await connection.getAccountInfo(metadataAddress);
-                    let metadata;
-                    let metadataJson;
-                    if (metadataAccount) {
-                        metadata = await Metadata.fromAccountAddress(connection, metadataAddress);
-                        if (metadata.data.uri) {
-                            metadataJson = await fetchMetadataJson(metadata.data.uri);
+                const accounts = await connection.getParsedTokenAccountsByOwner(
+                    publicKey,
+                    { programId: TOKEN_PROGRAM_ID }
+                );
+
+                const tokenAccounts = await Promise.all(accounts.value.map(async account => {
+                    const parsedInfo = account.account.data.parsed.info;
+                    const mintPubkey = new PublicKey(parsedInfo.mint);
+                    
+                    // 获取代币铸造账户信息
+                    const mintInfo = await getMint(connection, mintPubkey);
+                    
+                    // 获取元数据地址
+                    const metadataAddress = getMetadataAddress(mintPubkey);
+                    
+                    try {
+                        // 获取元数据账户信息
+                        const metadataAccount = await connection.getAccountInfo(metadataAddress);
+                        let metadata;
+                        let metadataJson;
+                        if (metadataAccount) {
+                            metadata = await Metadata.fromAccountAddress(connection, metadataAddress);
+                            if (metadata.data.uri) {
+                                metadataJson = await fetchMetadataJson(metadata.data.uri);
+                            }
                         }
+
+                        return {
+                            mint: parsedInfo.mint,
+                            amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
+                            decimals: parsedInfo.tokenAmount.decimals,
+                            symbol: metadata?.data.symbol || '未知代币',
+                            name: metadata?.data.name || '未知名称',
+                            uri: metadata?.data.uri,
+                            image: metadataJson?.image,
+                            mintAuthority: mintInfo.mintAuthority?.toBase58(),
+                            freezeAuthority: mintInfo.freezeAuthority?.toBase58(),
+                        };
+                    } catch (error) {
+                        console.error("获取元数据错误:", error);
+                        return {
+                            mint: parsedInfo.mint,
+                            amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
+                            decimals: parsedInfo.tokenAmount.decimals,
+                            symbol: '未知代币',
+                            name: '未知名称',
+                        };
                     }
+                }));
 
-                    return {
-                        mint: parsedInfo.mint,
-                        amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
-                        decimals: parsedInfo.tokenAmount.decimals,
-                        symbol: metadata?.data.symbol || '未知代币',
-                        name: metadata?.data.name || '未知名称',
-                        uri: metadata?.data.uri,
-                        image: metadataJson?.image,
-                        mintAuthority: mintInfo.mintAuthority?.toBase58(),
-                        freezeAuthority: mintInfo.freezeAuthority?.toBase58(),
-                    };
-                } catch (error) {
-                    console.error("获取元数据错误:", error);
-                    return {
-                        mint: parsedInfo.mint,
-                        amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
-                        decimals: parsedInfo.tokenAmount.decimals,
-                        symbol: '未知代币',
-                        name: '未知名称',
-                    };
-                }
-            }));
+                setTokens(tokenAccounts);
+                
+                // 过滤出当前用户有权限管理的代币
+                const managed = tokenAccounts.filter(token => 
+                    (token.mintAuthority === publicKey.toBase58() || 
+                    token.freezeAuthority === publicKey.toBase58())
+                );
+                setManagedTokens(managed);
 
-            setTokens(tokenAccounts);
-            
-            // 过滤出当前用户有权限管理的代币
-            const managed = tokenAccounts.filter(token => 
-                (token.mintAuthority === publicKey.toBase58() || 
-                token.freezeAuthority === publicKey.toBase58())
-            );
-            setManagedTokens(managed);
+            })();
+
+            // 使用 Promise.race 实现超时控制
+            await Promise.race([fetchPromise, timeoutPromise]);
 
         } catch (error) {
             console.error("获取代币列表错误:", error);
-            toast({
-                title: "错误",
-                description: "获取代币列表失败",
-                status: "error",
-                duration: 3000,
-            });
+            setError((error as Error).message);
+            if ((error as Error).message.includes('超时')) {
+                setIsTimedOut(true);
+            }
         } finally {
             setIsLoading(false);
         }
@@ -263,6 +283,58 @@ export const TokenList = () => {
         </Box>
     );
 
+    const LoadingOrErrorView = () => {
+        if (isLoading) {
+            return (
+                <Center p={8}>
+                    <VStack spacing={4}>
+                        <Spinner 
+                            thickness="4px"
+                            speed="0.65s"
+                            emptyColor="gray.200"
+                            color="blue.500"
+                            size="xl"
+                        />
+                        <Text color="gray.500">正在加载代币列表...</Text>
+                    </VStack>
+                </Center>
+            );
+        }
+
+        if (error) {
+            return (
+                <Alert
+                    status="error"
+                    variant="subtle"
+                    flexDirection="column"
+                    alignItems="center"
+                    justifyContent="center"
+                    textAlign="center"
+                    height="200px"
+                    borderRadius="md"
+                >
+                    <AlertIcon boxSize="40px" mr={0} />
+                    <AlertTitle mt={4} mb={1} fontSize="lg">
+                        {isTimedOut ? '加载超时' : '加载失败'}
+                    </AlertTitle>
+                    <AlertDescription maxWidth="sm">
+                        {error}
+                    </AlertDescription>
+                    <Button
+                        onClick={fetchTokens}
+                        mt={4}
+                        colorScheme="blue"
+                        leftIcon={<RepeatIcon />}
+                    >
+                        重试
+                    </Button>
+                </Alert>
+            );
+        }
+
+        return null;
+    };
+
     return (
         <Box p={4}>
             <VStack spacing={4} align="stretch">
@@ -307,21 +379,39 @@ export const TokenList = () => {
                     <TabPanels>
                         <TabPanel>
                             <VStack spacing={4} align="stretch">
-                                {tokens.map((token) => (
-                                    <TokenCard key={token.mint} token={token} />
-                                ))}
+                                {isLoading || error ? (
+                                    <LoadingOrErrorView />
+                                ) : tokens.length > 0 ? (
+                                    tokens.map((token) => (
+                                        <TokenCard key={token.mint} token={token} />
+                                    ))
+                                ) : (
+                                    <Alert status="info" borderRadius="md">
+                                        <AlertIcon />
+                                        <AlertTitle>暂无代币</AlertTitle>
+                                        <AlertDescription>
+                                            您的钱包中还没有任何代币
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
                             </VStack>
                         </TabPanel>
                         <TabPanel>
                             <VStack spacing={4} align="stretch">
-                                {managedTokens.length > 0 ? (
+                                {isLoading || error ? (
+                                    <LoadingOrErrorView />
+                                ) : managedTokens.length > 0 ? (
                                     managedTokens.map((token) => (
                                         <TokenCard key={token.mint} token={token} />
                                     ))
                                 ) : (
-                                    <Text color="gray.500" textAlign="center">
-                                        没有找到您管理的代币
-                                    </Text>
+                                    <Alert status="info" borderRadius="md">
+                                        <AlertIcon />
+                                        <AlertTitle>暂无管理权限</AlertTitle>
+                                        <AlertDescription>
+                                            没有找到您有权限管理的代币
+                                        </AlertDescription>
+                                    </Alert>
                                 )}
                             </VStack>
                         </TabPanel>
