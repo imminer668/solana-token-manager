@@ -263,9 +263,18 @@ export const TokenList = () => {
                         </HStack>
                         {(token.mintAuthority === publicKey?.toBase58() || 
                          token.freezeAuthority === publicKey?.toBase58()) && (
-                            <Text fontSize="xs" color="green.500">
-                                您是此代币的管理员
-                            </Text>
+                            <HStack spacing={1}>
+                                {token.mintAuthority === publicKey?.toBase58() && (
+                                    <Text fontSize="xs" color="green.500">
+                                        铸币权限
+                                    </Text>
+                                )}
+                                {token.freezeAuthority === publicKey?.toBase58() && (
+                                    <Text fontSize="xs" color="blue.500">
+                                        冻结权限
+                                    </Text>
+                                )}
+                            </HStack>
                         )}
                     </VStack>
                 </HStack>
@@ -276,6 +285,15 @@ export const TokenList = () => {
                     {token.mintAuthority === publicKey?.toBase58() && (
                         <Button size="sm" colorScheme="green">
                             铸币
+                        </Button>
+                    )}
+                    {token.freezeAuthority === publicKey?.toBase58() && (
+                        <Button 
+                            size="sm" 
+                            colorScheme="purple"
+                            variant="outline"
+                        >
+                            冻结
                         </Button>
                     )}
                 </HStack>
