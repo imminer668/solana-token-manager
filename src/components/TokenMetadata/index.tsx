@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     Box, 
     VStack, 
@@ -22,16 +22,132 @@ import {
 } from '@metaplex-foundation/mpl-token-metadata';
 import { PublicKey, Transaction } from '@solana/web3.js';
 
-export const TokenMetadata = () => {
+interface TokenMetadataProps {
+    mintAddress: string;
+    name: string;
+    symbol: string;
+    uri: string;
+    setMintAddress: (value: string) => void;
+    setName: (value: string) => void;
+    setSymbol: (value: string) => void;
+    setUri: (value: string) => void;
+    defaultTabIndex: number;
+}
+
+// 将 MetadataForm 抽离为独立组件
+const MetadataForm = React.memo(({ 
+    mintAddress,
+    name,
+    symbol,
+    uri,
+    setMintAddress,
+    setName,
+    setSymbol,
+    setUri,
+    allowUpdate,
+    setAllowUpdate,
+    isLoading,
+    onSubmit,
+    buttonText 
+}: {
+    mintAddress: string;
+    name: string;
+    symbol: string;
+    uri: string;
+    setMintAddress: (value: string) => void;
+    setName: (value: string) => void;
+    setSymbol: (value: string) => void;
+    setUri: (value: string) => void;
+    allowUpdate: boolean;
+    setAllowUpdate: (value: boolean) => void;
+    isLoading: boolean;
+    onSubmit: () => Promise<void>;
+    buttonText: string;
+}) => (
+    <VStack spacing={4} align="stretch">
+        <FormControl isRequired>
+            <FormLabel>代币地址</FormLabel>
+            <Input 
+                value={mintAddress}
+                onChange={(e) => setMintAddress(e.target.value)}
+                placeholder="输入代币地址"
+            />
+        </FormControl>
+
+        <FormControl isRequired>
+            <FormLabel>代币名称</FormLabel>
+            <Input 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="输入代币名称"
+            />
+        </FormControl>
+
+        <FormControl isRequired>
+            <FormLabel>代币符号</FormLabel>
+            <Input 
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+                placeholder="输入代币符号"
+            />
+        </FormControl>
+
+        <FormControl>
+            <FormLabel>
+                元数据 URI（
+                <a href="https://ipfs.io" target="_blank" rel="noopener noreferrer" style={{color: 'blue', textDecoration: 'underline'}}>IPFS</a>
+                {' | '}
+                <a href="https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png" target="_blank" rel="noopener noreferrer" style={{color: 'blue', textDecoration: 'underline'}}>元数据模版</a>
+                ）
+            </FormLabel>
+            <Input 
+                value={uri}
+                onChange={(e) => setUri(e.target.value)}
+                placeholder="输入元数据 URI（可选）"
+            />
+        </FormControl>
+
+        <Checkbox 
+            isChecked={allowUpdate} 
+            onChange={(e) => setAllowUpdate(e.target.checked)}
+        >
+            允许后续修改元数据
+        </Checkbox>
+
+        <Button
+            colorScheme="purple"
+            onClick={onSubmit}
+            isLoading={isLoading}
+            loadingText="处理中..."
+            isDisabled={!mintAddress || !name || !symbol}
+        >
+            {buttonText}
+        </Button>
+    </VStack>
+));
+
+export const TokenMetadata = ({
+    mintAddress,
+    name,
+    symbol,
+    uri,
+    setMintAddress,
+    setName,
+    setSymbol,
+    setUri,
+    defaultTabIndex
+}: TokenMetadataProps) => {
     const { connection } = useConnection();
     const { publicKey, signTransaction } = useWallet();
-    const [mintAddress, setMintAddress] = useState('');
-    const [name, setName] = useState('');
-    const [symbol, setSymbol] = useState('');
-    const [uri, setUri] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [allowUpdate, setAllowUpdate] = useState(true);
     const toast = useToast();
+    const [tabIndex, setTabIndex] = useState(defaultTabIndex);
+
+    // 当 defaultTabIndex 改变时更新 tabIndex
+    useEffect(() => {
+        setTabIndex(defaultTabIndex);
+    }, [defaultTabIndex]);
 
     // 获取元数据账户地址
     const getMetadataAddress = (mintPubkey: PublicKey) => {
@@ -200,66 +316,9 @@ export const TokenMetadata = () => {
         }
     };
 
-    const MetadataForm = ({ onSubmit, buttonText }: { onSubmit: () => Promise<void>, buttonText: string }) => (
-        <VStack spacing={4} align="stretch">
-            <FormControl isRequired>
-                <FormLabel>代币地址</FormLabel>
-                <Input 
-                    value={mintAddress}
-                    onChange={(e) => setMintAddress(e.target.value)}
-                    placeholder="输入代币地址"
-                />
-            </FormControl>
-
-            <FormControl isRequired>
-                <FormLabel>代币名称</FormLabel>
-                <Input 
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="输入代币名称"
-                />
-            </FormControl>
-
-            <FormControl isRequired>
-                <FormLabel>代币符号</FormLabel>
-                <Input 
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
-                    placeholder="输入代币符号"
-                />
-            </FormControl>
-
-            <FormControl>
-                <FormLabel>元数据 URI</FormLabel>
-                <Input 
-                    value={uri}
-                    onChange={(e) => setUri(e.target.value)}
-                    placeholder="输入元数据 URI（可选）"
-                />
-            </FormControl>
-
-            <Checkbox 
-                isChecked={allowUpdate} 
-                onChange={(e) => setAllowUpdate(e.target.checked)}
-            >
-                允许后续修改元数据
-            </Checkbox>
-
-            <Button
-                colorScheme="purple"
-                onClick={onSubmit}
-                isLoading={isLoading}
-                loadingText="处理中..."
-                isDisabled={!mintAddress || !name || !symbol}
-            >
-                {buttonText}
-            </Button>
-        </VStack>
-    );
-
     return (
         <Box p={4}>
-            <Tabs>
+            <Tabs index={tabIndex} onChange={setTabIndex}>
                 <TabList>
                     <Tab>创建元数据</Tab>
                     <Tab>修改元数据</Tab>
@@ -267,10 +326,38 @@ export const TokenMetadata = () => {
 
                 <TabPanels>
                     <TabPanel>
-                        <MetadataForm onSubmit={handleCreateMetadata} buttonText="创建元数据" />
+                        <MetadataForm 
+                            mintAddress={mintAddress}
+                            name={name}
+                            symbol={symbol}
+                            uri={uri}
+                            setMintAddress={setMintAddress}
+                            setName={setName}
+                            setSymbol={setSymbol}
+                            setUri={setUri}
+                            allowUpdate={allowUpdate}
+                            setAllowUpdate={setAllowUpdate}
+                            isLoading={isLoading}
+                            onSubmit={handleCreateMetadata}
+                            buttonText="创建元数据"
+                        />
                     </TabPanel>
                     <TabPanel>
-                        <MetadataForm onSubmit={handleUpdateMetadata} buttonText="更新元数据" />
+                        <MetadataForm 
+                            mintAddress={mintAddress}
+                            name={name}
+                            symbol={symbol}
+                            uri={uri}
+                            setMintAddress={setMintAddress}
+                            setName={setName}
+                            setSymbol={setSymbol}
+                            setUri={setUri}
+                            allowUpdate={allowUpdate}
+                            setAllowUpdate={setAllowUpdate}
+                            isLoading={isLoading}
+                            onSubmit={handleUpdateMetadata}
+                            buttonText="更新元数据"
+                        />
                     </TabPanel>
                 </TabPanels>
             </Tabs>

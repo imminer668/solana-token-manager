@@ -5,9 +5,16 @@ import { MintToken } from '../components/MintToken';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { TokenList } from '../components/TokenList';
 import { TokenMetadata } from '../components/TokenMetadata';
+import { useState } from 'react';
 
 export default function Home() {
     const { publicKey } = useWallet();
+    const [mintAddress, setMintAddress] = useState('');
+    const [name, setName] = useState('');
+    const [symbol, setSymbol] = useState('');
+    const [uri, setUri] = useState('');
+    const [metadataTabIndex, setMetadataTabIndex] = useState(0);
+    const [mintTokenAddress, setMintTokenAddress] = useState('');
 
     return (
         <Container maxW="container.xl" py={8}>
@@ -28,21 +35,40 @@ export default function Home() {
                             <Tab>创建代币&关联ATA账户</Tab>
                             <Tab>设置元数据</Tab>
                             <Tab>铸造代币</Tab>
-                            
                         </TabList>
 
                         <TabPanels>
                             <TabPanel>
-                                <TokenList />
+                                <TokenList 
+                                    setMintAddress={setMintAddress}
+                                    setName={setName}
+                                    setSymbol={setSymbol}
+                                    setUri={setUri}
+                                    setMetadataTabIndex={setMetadataTabIndex}
+                                    setMintTokenAddress={setMintTokenAddress}
+                                />
                             </TabPanel>
                             <TabPanel>
                                 <CreateToken />
-                            </TabPanel>                            
-                            <TabPanel>
-                                <TokenMetadata />
                             </TabPanel>
                             <TabPanel>
-                                <MintToken />
+                                <TokenMetadata 
+                                    mintAddress={mintAddress}
+                                    name={name}
+                                    symbol={symbol}
+                                    uri={uri}
+                                    setMintAddress={setMintAddress}
+                                    setName={setName}
+                                    setSymbol={setSymbol}
+                                    setUri={setUri}
+                                    defaultTabIndex={metadataTabIndex}
+                                />
+                            </TabPanel>
+                            <TabPanel>
+                                <MintToken 
+                                    mintAddress={mintTokenAddress}
+                                    setMintAddress={setMintTokenAddress}
+                                />
                             </TabPanel>
                         </TabPanels>
                     </Tabs>

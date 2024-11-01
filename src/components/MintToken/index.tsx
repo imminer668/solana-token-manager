@@ -24,10 +24,17 @@ import {
 } from '@solana/web3.js';
 import { getMintAuthority } from '../../utils/wallet';
 
-export const MintToken = () => {
+interface MintTokenProps {
+    mintAddress: string;
+    setMintAddress: (value: string) => void;
+}
+
+export const MintToken = ({
+    mintAddress,
+    setMintAddress
+}: MintTokenProps) => {
     const { connection } = useConnection();
     const { publicKey, signTransaction } = useWallet();
-    const [mintAddress, setMintAddress] = useState('');
     const [recipientAddress, setRecipientAddress] = useState('');
     const [amount, setAmount] = useState('');
     const [isLoading, setIsLoading] = useState(false);

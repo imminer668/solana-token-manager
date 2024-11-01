@@ -31,7 +31,7 @@ import {
     getMint,
 } from '@solana/spl-token';
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { CopyIcon, RepeatIcon } from '@chakra-ui/icons';
+import { CopyIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
 import { 
     Metadata, 
     PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID 
@@ -57,7 +57,23 @@ interface TokenAccount {
     freezeAuthority?: string;
 }
 
-export const TokenList = () => {
+interface TokenListProps {
+    setMintAddress: (value: string) => void;
+    setName: (value: string) => void;
+    setSymbol: (value: string) => void;
+    setUri: (value: string) => void;
+    setMetadataTabIndex: (value: number) => void;
+    setMintTokenAddress: (value: string) => void;
+}
+
+export const TokenList = ({
+    setMintAddress,
+    setName,
+    setSymbol,
+    setUri,
+    setMetadataTabIndex,
+    setMintTokenAddress
+}: TokenListProps) => {
     const { connection } = useConnection();
     const { publicKey } = useWallet();
     const [tokens, setTokens] = useState<TokenAccount[]>([]);
@@ -136,7 +152,7 @@ export const TokenList = () => {
                         let metadataJson;
                         if (metadataAccount) {
                             metadata = await Metadata.fromAccountAddress(connection, metadataAddress);
-                            if (metadata.data.uri) {
+                            if (metadata.data.uri && metadata.data.uri.trim() !== '' && metadata.data.uri.match(/^(https?:\/\/|ipfs:\/\/)/)) {
                                 metadataJson = await fetchMetadataJson(metadata.data.uri);
                             }
                         }
@@ -203,66 +219,67 @@ export const TokenList = () => {
         fetchTokens();
     }, [publicKey]);
 
-    const TokenCard = ({ token }: { token: TokenAccount }) => (
-        <Box 
-            key={token.mint}
-            p={4}
-            borderWidth={1}
-            borderRadius="md"
-            _hover={{ bg: "gray.50" }}
-        >
-            <HStack justify="space-between">
-                <HStack spacing={4}>
-                    {token.image && (
-                        <Box 
-                            width="40px" 
-                            height="40px" 
-                            borderRadius="full" 
-                            overflow="hidden"
-                        >
-                            <Image
-                                src={token.image}
-                                alt={token.name || "Token image"}
-                                width="100%"
-                                height="100%"
-                                objectFit="cover"
-                                fallback={
-                                    <Box 
-                                        width="100%" 
-                                        height="100%" 
-                                        bg="gray.200" 
-                                        display="flex" 
-                                        alignItems="center" 
-                                        justifyContent="center"
-                                    >
-                                        <Text fontSize="xs">
-                                            {token.symbol?.[0] || "?"}
-                                        </Text>
-                                    </Box>
-                                }
-                            />
-                        </Box>
-                    )}
-                    <VStack align="start" spacing={1}>
-                        <Text fontWeight="bold">
-                            {token.name} ({token.symbol})
-                        </Text>
-                        <Text fontSize="sm" color="gray.500">
-                            余额: {token.amount}
-                        </Text>
-                        <HStack>
-                            <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
-                                {token.mint}
+    const TokenCard = ({ token }: { token: TokenAccount }) => {
+        const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
+
+        return (
+            <Box 
+                key={token.mint}
+                p={4}
+                borderWidth={1}
+                borderRadius="md"
+                _hover={{ bg: "gray.50" }}
+            >
+                <HStack justify="space-between">
+                    <HStack spacing={4}>
+                        {token.image && (
+                            <Box 
+                                width="40px" 
+                                height="40px" 
+                                borderRadius="full" 
+                                overflow="hidden"
+                            >
+                                <Image
+                                    src={token.image}
+                                    alt={token.name || "Token image"}
+                                    width="100%"
+                                    height="100%"
+                                    objectFit="cover"
+                                    fallback={
+                                        <Box 
+                                            width="100%" 
+                                            height="100%" 
+                                            bg="gray.200" 
+                                            display="flex" 
+                                            alignItems="center" 
+                                            justifyContent="center"
+                                        >
+                                            <Text fontSize="xs">
+                                                {token.symbol?.[0] || "?"}
+                                            </Text>
+                                        </Box>
+                                    }
+                                />
+                            </Box>
+                        )}
+                        <VStack align="start" spacing={1}>
+                            <Text fontWeight="bold">
+                                {token.name} ({token.symbol})
                             </Text>
-                            <IconButton
-                                aria-label="Copy address"
-                                icon={<CopyIcon />}
-                                size="xs"
-                                onClick={() => copyAddress(token.mint)}
-                            />
-                        </HStack>
-                        {(token.mintAuthority === publicKey?.toBase58() || 
-                         token.freezeAuthority === publicKey?.toBase58()) && (
+                            <Text fontSize="sm" color="gray.500">
+                                余额: {token.amount}
+                            </Text>
+                            <HStack>
+                                <Text fontSize="xs" color="gray.400" isTruncated maxW="200px">
+                                    {token.mint}
+                                </Text>
+                                <IconButton
+                                    aria-label="Copy address"
+                                    icon={<CopyIcon />}
+                                    size="xs"
+                                    onClick={() => copyAddress(token.mint)}
+                                />
+                            </HStack>
                             <HStack spacing={1}>
                                 {token.mintAuthority === publicKey?.toBase58() && (
                                     <Text fontSize="xs" color="green.500">
@@ -275,31 +292,76 @@ export const TokenList = () => {
                                     </Text>
                                 )}
                             </HStack>
+                        </VStack>
+                    </HStack>
+                    <VStack align="end" spacing={2}>
+                        <HStack>
+                            <Button size="sm" colorScheme="blue">
+                                转账
+                            </Button>
+                            {token.mintAuthority === publicKey?.toBase58() && (
+                                <Button 
+                                    size="sm" 
+                                    colorScheme="green"
+                                    onClick={() => {
+                                        // 设置铸币地址
+                                        setMintTokenAddress(token.mint);
+                                        
+                                        // 跳转到铸币标签页
+                                        const tabIndex = 3; // 铸币是第四个标签
+                                        const tabs = document.querySelectorAll('[role="tab"]');
+                                        if (tabs[tabIndex]) {
+                                            (tabs[tabIndex] as HTMLElement).click();
+                                        }
+                                    }}
+                                >
+                                    铸币
+                                </Button>
+                            )}
+                            {token.freezeAuthority === publicKey?.toBase58() && (
+                                <Button 
+                                    size="sm" 
+                                    colorScheme="purple"
+                                    variant="outline"
+                                >
+                                    冻结
+                                </Button>
+                            )}
+                        </HStack>
+                        {hasMetadataAuthority && (
+                            <Button 
+                                size="sm" 
+                                colorScheme="teal"
+                                variant="ghost"
+                                width="full"
+                                leftIcon={<SettingsIcon />}
+                                onClick={() => {
+                                    // 自动填充代币地址
+                                    setMintAddress(token.mint);
+                                    setName(token.name && token.name !== '未知名称' ? token.name : '');
+                                    setSymbol(token.symbol && token.symbol !== '未知代币' ? token.symbol : '');
+                                    setUri(token.uri || '');
+                                    
+                                    // 根据条件设置标签页
+                                    setMetadataTabIndex(token.name && token.name !== '未知名称' ? 1 : 0);
+                                    console.log(token.name && token.name !== '未知名称' ? 1 : 0);
+                                    
+                                    // 跳转到设置元数据标签页
+                                    const tabIndex = 2; // 设置元数据是第三个标签
+                                    const tabs = document.querySelectorAll('[role="tab"]');
+                                    if (tabs[tabIndex]) {
+                                        (tabs[tabIndex] as HTMLElement).click();
+                                    }
+                                }}
+                            >
+                                设置元数据
+                            </Button>
                         )}
                     </VStack>
                 </HStack>
-                <HStack>
-                    <Button size="sm" colorScheme="blue">
-                        转账
-                    </Button>
-                    {token.mintAuthority === publicKey?.toBase58() && (
-                        <Button size="sm" colorScheme="green">
-                            铸币
-                        </Button>
-                    )}
-                    {token.freezeAuthority === publicKey?.toBase58() && (
-                        <Button 
-                            size="sm" 
-                            colorScheme="purple"
-                            variant="outline"
-                        >
-                            冻结
-                        </Button>
-                    )}
-                </HStack>
-            </HStack>
-        </Box>
-    );
+            </Box>
+        );
+    };
 
     const LoadingOrErrorView = () => {
         if (isLoading) {
