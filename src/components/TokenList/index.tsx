@@ -23,6 +23,8 @@ import {
     AlertTitle,
     AlertDescription,
     Center,
+    FormControl,
+    FormLabel,
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
@@ -30,7 +32,7 @@ import {
     getAccount,
     getMint,
 } from '@solana/spl-token';
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
 import { CopyIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
 import { 
     Metadata, 
@@ -75,7 +77,7 @@ export const TokenList = ({
     setMintTokenAddress
 }: TokenListProps) => {
     const { connection } = useConnection();
-    const { publicKey } = useWallet();
+    const { publicKey, sendTransaction } = useWallet();
     const [tokens, setTokens] = useState<TokenAccount[]>([]);
     const [solBalance, setSolBalance] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
@@ -86,6 +88,7 @@ export const TokenList = ({
     const [error, setError] = useState<string | null>(null);
     const [isTimedOut, setIsTimedOut] = useState(false);
     const FETCH_TIMEOUT = 30000; // 30 秒超时
+    const [isSendingSol, setIsSendingSol] = useState(false);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -415,6 +418,72 @@ export const TokenList = ({
         return null;
     };
 
+    const handleSendSol = async () => {
+        if (!publicKey || !sendAddress || !sendAmount || !sendTransaction) {
+            toast({
+                title: "错误",
+                description: "请填写完整的转账信息",
+                status: "error",
+                duration: 3000,
+            });
+            return;
+        }
+
+        try {
+            setIsSendingSol(true);
+
+            // 验证接收地址
+            const recipientPubkey = new PublicKey(sendAddress);
+
+            // 创建转账交易
+            const transaction = new Transaction().add(
+                SystemProgram.transfer({
+                    fromPubkey: publicKey,
+                    toPubkey: recipientPubkey,
+                    lamports: Number(sendAmount) * LAMPORTS_PER_SOL
+                })
+            );
+
+            // 获取最新的 blockhash
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = publicKey;
+
+            // 使用 wallet adapter 的 sendTransaction
+            const signature = await sendTransaction(transaction, connection);
+            
+            // 等待交易确认
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            // 更新余额
+            const newBalance = await connection.getBalance(publicKey);
+            setSolBalance(newBalance / LAMPORTS_PER_SOL);
+
+            // 清空输入
+            setSendAddress('');
+            setSendAmount('');
+
+            toast({
+                title: "成功",
+                description: `成功发送 ${sendAmount} SOL 到 ${sendAddress}`,
+                status: "success",
+                duration: 5000,
+                isClosable: true,
+            });
+
+        } catch (error) {
+            console.error("发送 SOL 错误:", error);
+            toast({
+                title: "错误",
+                description: "发送 SOL 失败: " + (error as Error).message,
+                status: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsSendingSol(false);
+        }
+    };
+
     return (
         <Box p={4}>
             <VStack spacing={4} align="stretch">
@@ -431,21 +500,46 @@ export const TokenList = ({
                 </HStack>
 
                 <Box>
-                    <Input 
-                        placeholder="接收地址"
-                        value={sendAddress}
-                        onChange={(e) => setSendAddress(e.target.value)}
-                        mb={2}
-                    />
-                    <NumberInput 
-                        value={sendAmount}
-                        onChange={(value) => setSendAmount(value)}
-                        min={0}
-                        mb={2}
+                    <FormControl isRequired mb={2}>
+                        <FormLabel>接收地址</FormLabel>
+                        <Input 
+                            placeholder="输入接收钱包地址"
+                            value={sendAddress}
+                            onChange={(e) => setSendAddress(e.target.value)}
+                        />
+                    </FormControl>
+                    <FormControl isRequired mb={2}>
+                        <FormLabel>发送数量</FormLabel>
+                        <Input
+                            type="number"
+                            value={sendAmount}
+                            onChange={(e) => {
+                                // 允许输入小数点和数字
+                                const value = e.target.value;
+                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    // 确保数值不超过余额
+                                    if (Number(value) <= solBalance) {
+                                        setSendAmount(value);
+                                    }
+                                }
+                            }}
+                            placeholder="输入 SOL 数量"
+                            step="any" // 允许任意小数
+                            min={0}
+                            max={solBalance}
+                        />
+                        <Text fontSize="sm" color="gray.500" mt={1}>
+                            可用余额: {solBalance.toFixed(4)} SOL
+                        </Text>
+                    </FormControl>
+                    <Button 
+                        colorScheme="blue" 
+                        width="full"
+                        onClick={handleSendSol}
+                        isLoading={isSendingSol}
+                        loadingText="发送中..."
+                        isDisabled={!sendAddress || !sendAmount || Number(sendAmount) > solBalance}
                     >
-                        <NumberInputField placeholder="发送数量" />
-                    </NumberInput>
-                    <Button colorScheme="blue" width="full">
                         发送 SOL
                     </Button>
                 </Box>
