@@ -25,12 +25,22 @@ import {
     Center,
     FormControl,
     FormLabel,
+    Modal,
+    ModalOverlay,
+    ModalContent,
+    ModalHeader,
+    ModalCloseButton,
+    ModalBody,
+    ModalFooter,
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
     TOKEN_PROGRAM_ID,
     getAccount,
     getMint,
+    getAssociatedTokenAddress,
+    createAssociatedTokenAccountInstruction,
+    createTransferInstruction,
 } from '@solana/spl-token';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
 import { CopyIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
@@ -38,6 +48,7 @@ import {
     Metadata, 
     PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID 
 } from '@metaplex-foundation/mpl-token-metadata';
+import React from 'react';
 
 interface TokenMetadataJson {
     name: string;
@@ -68,6 +79,163 @@ interface TokenListProps {
     setMintTokenAddress: (value: string) => void;
 }
 
+// 将 TransferModal 抽离为独立组件
+const TransferModal = React.memo(({ 
+    isOpen,
+    onClose,
+    selectedToken,
+    sendAddress,
+    sendAmount,
+    setSendAddress,
+    setSendAmount,
+    isTransferring,
+    handleTransferToken
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    selectedToken: TokenAccount | null;
+    sendAddress: string;
+    sendAmount: string;
+    setSendAddress: (value: string) => void;
+    setSendAmount: (value: string) => void;
+    isTransferring: boolean;
+    handleTransferToken: (token: TokenAccount, recipientAddress: string, amount: string) => Promise<void>;
+}) => (
+    <Modal isOpen={isOpen} onClose={onClose}>
+        <ModalOverlay />
+        <ModalContent>
+            <ModalHeader>
+                转账 {selectedToken?.symbol}
+            </ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+                <VStack spacing={4}>
+                    <FormControl isRequired>
+                        <FormLabel>接收地址</FormLabel>
+                        <Input 
+                            value={sendAddress}
+                            onChange={(e) => setSendAddress(e.target.value)}
+                            placeholder="输入接收钱包地址"
+                        />
+                    </FormControl>
+                    <FormControl isRequired>
+                        <FormLabel>发送数量</FormLabel>
+                        <Input
+                            type="number"
+                            value={sendAmount}
+                            onChange={(e) => {
+                                const value = e.target.value;
+                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    if (selectedToken && Number(value) <= selectedToken.amount) {
+                                        setSendAmount(value);
+                                    }
+                                }
+                            }}
+                            placeholder={`输入 ${selectedToken?.symbol} 数量`}
+                            step="any"
+                            min={0}
+                            max={selectedToken?.amount}
+                        />
+                        <Text fontSize="sm" color="gray.500" mt={1}>
+                            可用余额: {selectedToken?.amount} {selectedToken?.symbol}
+                        </Text>
+                    </FormControl>
+                </VStack>
+            </ModalBody>
+            <ModalFooter>
+                <Button 
+                    colorScheme="blue" 
+                    mr={3} 
+                    onClick={() => {
+                        if (selectedToken) {
+                            handleTransferToken(selectedToken, sendAddress, sendAmount);
+                        }
+                    }}
+                    isLoading={isTransferring}
+                    loadingText="转账中..."
+                    isDisabled={
+                        !sendAddress || 
+                        !sendAmount || 
+                        !selectedToken || 
+                        Number(sendAmount) > selectedToken.amount ||
+                        selectedToken.amount <= 0
+                    }
+                >
+                    {selectedToken?.amount <= 0 ? "余额不足" : "确认转账"}
+                </Button>
+                <Button variant="ghost" onClick={onClose}>
+                    取消
+                </Button>
+            </ModalFooter>
+        </ModalContent>
+    </Modal>
+));
+
+// 将 SolTransferForm 抽离为独立组件并使用 React.memo
+const SolTransferForm = React.memo(({ 
+    solSendAddress,
+    solSendAmount,
+    setSolSendAddress,
+    setSolSendAmount,
+    solBalance,
+    isSendingSol,
+    handleSendSol
+}: {
+    solSendAddress: string;
+    solSendAmount: string;
+    setSolSendAddress: (value: string) => void;
+    setSolSendAmount: (value: string) => void;
+    solBalance: number;
+    isSendingSol: boolean;
+    handleSendSol: () => Promise<void>;
+}) => (
+    <Box>
+        <FormControl isRequired mb={2}>
+            <FormLabel>接收地址</FormLabel>
+            <Input 
+                placeholder="输入接收钱包地址"
+                value={solSendAddress}
+                onChange={(e) => setSolSendAddress(e.target.value)}
+            />
+        </FormControl>
+        <FormControl isRequired mb={2}>
+            <FormLabel>发送数量</FormLabel>
+            <NumberInput
+                value={solSendAmount}
+                onChange={(valueString) => {
+                    // 允许空字符串和有效的数字（包括小数点）
+                    if (valueString === '' || /^\d*\.?\d*$/.test(valueString)) {
+                        if (valueString === '' || Number(valueString) <= solBalance) {
+                            setSolSendAmount(valueString);
+                        }
+                    }
+                }}
+                min={0}
+                max={solBalance}
+                precision={9}  // SOL 最多支持 9 位小数
+                step={0.1}
+                keepWithinRange={true}
+                clampValueOnBlur={true}
+            >
+                <NumberInputField placeholder="输入 SOL 数量" />
+            </NumberInput>
+            <Text fontSize="sm" color="gray.500" mt={1}>
+                可用余额: {solBalance.toFixed(4)} SOL
+            </Text>
+        </FormControl>
+        <Button 
+            colorScheme="blue" 
+            width="full"
+            onClick={handleSendSol}
+            isLoading={isSendingSol}
+            loadingText="发送中..."
+            isDisabled={!solSendAddress || !solSendAmount || Number(solSendAmount) > solBalance}
+        >
+            发送 SOL
+        </Button>
+    </Box>
+));
+
 export const TokenList = ({
     setMintAddress,
     setName,
@@ -81,14 +249,19 @@ export const TokenList = ({
     const [tokens, setTokens] = useState<TokenAccount[]>([]);
     const [solBalance, setSolBalance] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
-    const [sendAddress, setSendAddress] = useState('');
-    const [sendAmount, setSendAmount] = useState('');
+    const [solSendAddress, setSolSendAddress] = useState('');
+    const [solSendAmount, setSolSendAmount] = useState('');
     const toast = useToast();
     const [managedTokens, setManagedTokens] = useState<TokenAccount[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isTimedOut, setIsTimedOut] = useState(false);
     const FETCH_TIMEOUT = 30000; // 30 秒超时
     const [isSendingSol, setIsSendingSol] = useState(false);
+    const [isTransferring, setIsTransferring] = useState(false);
+    const [selectedToken, setSelectedToken] = useState<TokenAccount | null>(null);
+    const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+    const [tokenSendAddress, setTokenSendAddress] = useState('');
+    const [tokenSendAmount, setTokenSendAmount] = useState('');
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -222,6 +395,106 @@ export const TokenList = ({
         fetchTokens();
     }, [publicKey]);
 
+    const handleTransferToken = async (
+        token: TokenAccount,
+        recipientAddress: string,
+        amount: string
+    ) => {
+        if (!publicKey || !sendTransaction) {
+            toast({
+                title: "错误",
+                description: "请先连接钱包",
+                status: "error",
+                duration: 3000,
+            });
+            return;
+        }
+
+        try {
+            setIsTransferring(true);
+
+            const mintPubkey = new PublicKey(token.mint);
+            const recipientPubkey = new PublicKey(recipientAddress);
+
+            // 获取发送者的代币账户
+            const senderATA = await getAssociatedTokenAddress(
+                mintPubkey,
+                publicKey
+            );
+
+            // 获取接收者的代币账户
+            const recipientATA = await getAssociatedTokenAddress(
+                mintPubkey,
+                recipientPubkey
+            );
+
+            const transaction = new Transaction();
+
+            // 检查接收者的代币账户是否存在
+            try {
+                await getAccount(connection, recipientATA);
+            } catch (error) {
+                // 如果账户不存在，添加创建账户的指令
+                transaction.add(
+                    createAssociatedTokenAccountInstruction(
+                        publicKey,
+                        recipientATA,
+                        recipientPubkey,
+                        mintPubkey
+                    )
+                );
+            }
+
+            // 添加转账指令
+            const transferAmount = Number(amount) * Math.pow(10, token.decimals);
+            transaction.add(
+                createTransferInstruction(
+                    senderATA,
+                    recipientATA,
+                    publicKey,
+                    transferAmount
+                )
+            );
+
+            // 获取最新的 blockhash
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = publicKey;
+
+            // 发送交易
+            const signature = await sendTransaction(transaction, connection);
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            toast({
+                title: "成功",
+                description: `成功发送 ${amount} ${token.symbol} 到 ${recipientAddress}`,
+                status: "success",
+                duration: 5000,
+                isClosable: true,
+            });
+
+            // 刷新代币列表
+            fetchTokens();
+            
+            // 关闭转账模态框
+            setIsTransferModalOpen(false);
+            setSelectedToken(null);
+            setTokenSendAddress('');
+            setTokenSendAmount('');
+
+        } catch (error) {
+            console.error("转账代币错误:", error);
+            toast({
+                title: "错误",
+                description: "转账失败: " + (error as Error).message,
+                status: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsTransferring(false);
+        }
+    };
+
     const TokenCard = ({ token }: { token: TokenAccount }) => {
         const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
 
@@ -299,8 +572,16 @@ export const TokenList = ({
                     </HStack>
                     <VStack align="end" spacing={2}>
                         <HStack>
-                            <Button size="sm" colorScheme="blue">
-                                转账
+                            <Button 
+                                size="sm" 
+                                colorScheme="blue"
+                                onClick={() => {
+                                    setSelectedToken(token);
+                                    setIsTransferModalOpen(true);
+                                }}
+                                isDisabled={token.amount <= 0}
+                            >
+                                {token.amount <= 0 ? "余额不足" : "转账"}
                             </Button>
                             {token.mintAuthority === publicKey?.toBase58() && (
                                 <Button 
@@ -419,7 +700,7 @@ export const TokenList = ({
     };
 
     const handleSendSol = async () => {
-        if (!publicKey || !sendAddress || !sendAmount || !sendTransaction) {
+        if (!publicKey || !solSendAddress || !solSendAmount || !sendTransaction) {
             toast({
                 title: "错误",
                 description: "请填写完整的转账信息",
@@ -433,14 +714,14 @@ export const TokenList = ({
             setIsSendingSol(true);
 
             // 验证接收地址
-            const recipientPubkey = new PublicKey(sendAddress);
+            const recipientPubkey = new PublicKey(solSendAddress);
 
             // 创建转账交易
             const transaction = new Transaction().add(
                 SystemProgram.transfer({
                     fromPubkey: publicKey,
                     toPubkey: recipientPubkey,
-                    lamports: Number(sendAmount) * LAMPORTS_PER_SOL
+                    lamports: Number(solSendAmount) * LAMPORTS_PER_SOL
                 })
             );
 
@@ -460,12 +741,12 @@ export const TokenList = ({
             setSolBalance(newBalance / LAMPORTS_PER_SOL);
 
             // 清空输入
-            setSendAddress('');
-            setSendAmount('');
+            setSolSendAddress('');
+            setSolSendAmount('');
 
             toast({
                 title: "成功",
-                description: `成功发送 ${sendAmount} SOL 到 ${sendAddress}`,
+                description: `成功发送 ${solSendAmount} SOL 到 ${solSendAddress}`,
                 status: "success",
                 duration: 5000,
                 isClosable: true,
@@ -499,50 +780,15 @@ export const TokenList = ({
                     </Button>
                 </HStack>
 
-                <Box>
-                    <FormControl isRequired mb={2}>
-                        <FormLabel>接收地址</FormLabel>
-                        <Input 
-                            placeholder="输入接收钱包地址"
-                            value={sendAddress}
-                            onChange={(e) => setSendAddress(e.target.value)}
-                        />
-                    </FormControl>
-                    <FormControl isRequired mb={2}>
-                        <FormLabel>发送数量</FormLabel>
-                        <Input
-                            type="number"
-                            value={sendAmount}
-                            onChange={(e) => {
-                                // 允许输入小数点和数字
-                                const value = e.target.value;
-                                if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                                    // 确保数值不超过余额
-                                    if (Number(value) <= solBalance) {
-                                        setSendAmount(value);
-                                    }
-                                }
-                            }}
-                            placeholder="输入 SOL 数量"
-                            step="any" // 允许任意小数
-                            min={0}
-                            max={solBalance}
-                        />
-                        <Text fontSize="sm" color="gray.500" mt={1}>
-                            可用余额: {solBalance.toFixed(4)} SOL
-                        </Text>
-                    </FormControl>
-                    <Button 
-                        colorScheme="blue" 
-                        width="full"
-                        onClick={handleSendSol}
-                        isLoading={isSendingSol}
-                        loadingText="发送中..."
-                        isDisabled={!sendAddress || !sendAmount || Number(sendAmount) > solBalance}
-                    >
-                        发送 SOL
-                    </Button>
-                </Box>
+                <SolTransferForm 
+                    solSendAddress={solSendAddress}
+                    solSendAmount={solSendAmount}
+                    setSolSendAddress={setSolSendAddress}
+                    setSolSendAmount={setSolSendAmount}
+                    solBalance={solBalance}
+                    isSendingSol={isSendingSol}
+                    handleSendSol={handleSendSol}
+                />
 
                 <Tabs>
                     <TabList>
@@ -592,6 +838,22 @@ export const TokenList = ({
                     </TabPanels>
                 </Tabs>
             </VStack>
+            <TransferModal 
+                isOpen={isTransferModalOpen}
+                onClose={() => {
+                    setIsTransferModalOpen(false);
+                    setSelectedToken(null);
+                    setTokenSendAddress('');
+                    setTokenSendAmount('');
+                }}
+                selectedToken={selectedToken}
+                sendAddress={tokenSendAddress}
+                sendAmount={tokenSendAmount}
+                setSendAddress={setTokenSendAddress}
+                setSendAmount={setTokenSendAmount}
+                isTransferring={isTransferring}
+                handleTransferToken={handleTransferToken}
+            />
         </Box>
     );
 }; 
