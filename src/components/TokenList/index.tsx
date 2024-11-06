@@ -32,6 +32,14 @@ import {
     ModalCloseButton,
     ModalBody,
     ModalFooter,
+    AlertDialog,
+    AlertDialogBody,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogContent,
+    AlertDialogOverlay,
+    UnorderedList,
+    ListItem,
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
@@ -41,6 +49,8 @@ import {
     getAssociatedTokenAddress,
     createAssociatedTokenAccountInstruction,
     createTransferInstruction,
+    createSetAuthorityInstruction,
+    AuthorityType,
 } from '@solana/spl-token';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
 import { CopyIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
@@ -262,6 +272,13 @@ export const TokenList = ({
     const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
     const [tokenSendAddress, setTokenSendAddress] = useState('');
     const [tokenSendAmount, setTokenSendAmount] = useState('');
+    const [isDisablingMint, setIsDisablingMint] = useState(false);
+    const [isDisablingFreeze, setIsDisablingFreeze] = useState(false);
+    const [isDisableMintAlertOpen, setIsDisableMintAlertOpen] = useState(false);
+    const [selectedTokenForDisable, setSelectedTokenForDisable] = useState<TokenAccount | null>(null);
+    const [isDisableFreezeMintAlertOpen, setIsDisableFreezeAlertOpen] = useState(false);
+    const [selectedTokenForDisableFreeze, setSelectedTokenForDisableFreeze] = useState<TokenAccount | null>(null);
+    const cancelRef = React.useRef<HTMLButtonElement>(null);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -495,6 +512,144 @@ export const TokenList = ({
         }
     };
 
+    // 禁用铸币权限
+    const handleDisableMint = async (token: TokenAccount) => {
+        if (!publicKey || !sendTransaction) {
+            toast({
+                title: "错误",
+                description: "请先连接钱包",
+                status: "error",
+                duration: 3000,
+            });
+            return;
+        }
+
+        try {
+            setIsDisablingMint(true);
+            const mintPubkey = new PublicKey(token.mint);
+
+            // 创建禁用铸币权限的指令
+            const disableMintingInstruction = createSetAuthorityInstruction(
+                mintPubkey,
+                publicKey,
+                AuthorityType.MintTokens,
+                null  // 设置为 null 表示禁用该权限
+            );
+
+            // 创建并发送交易
+            const transaction = new Transaction().add(disableMintingInstruction);
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = publicKey;
+
+            const signature = await sendTransaction(transaction, connection);
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            toast({
+                title: "成功",
+                description: "已禁用铸币权限",
+                status: "success",
+                duration: 5000,
+            });
+
+            // 刷新代币列表
+            fetchTokens();
+
+        } catch (error) {
+            console.error("禁用铸币权限错误:", error);
+            toast({
+                title: "错误",
+                description: "禁用铸币权限失败: " + (error as Error).message,
+                status: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsDisablingMint(false);
+        }
+    };
+
+    // 禁用冻结权限
+    const handleDisableFreeze = async (token: TokenAccount) => {
+        if (!publicKey || !sendTransaction) {
+            toast({
+                title: "错误",
+                description: "请先连接钱包",
+                status: "error",
+                duration: 3000,
+            });
+            return;
+        }
+
+        try {
+            setIsDisablingFreeze(true);
+            const mintPubkey = new PublicKey(token.mint);
+
+            // 创建禁用冻结权限的指令
+            const disableFreezeInstruction = createSetAuthorityInstruction(
+                mintPubkey,
+                publicKey,
+                AuthorityType.FreezeAccount,
+                null  // 设置为 null 表示禁用该权限
+            );
+
+            // 创建并发送交易
+            const transaction = new Transaction().add(disableFreezeInstruction);
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = publicKey;
+
+            const signature = await sendTransaction(transaction, connection);
+            await connection.confirmTransaction(signature, 'confirmed');
+
+            toast({
+                title: "成功",
+                description: "已禁用冻结权限",
+                status: "success",
+                duration: 5000,
+            });
+
+            // 刷新代币列表
+            fetchTokens();
+
+        } catch (error) {
+            console.error("禁用冻结权限错误:", error);
+            toast({
+                title: "错误",
+                description: "禁用冻结权限失败: " + (error as Error).message,
+                status: "error",
+                duration: 3000,
+            });
+        } finally {
+            setIsDisablingFreeze(false);
+        }
+    };
+
+    const handleDisableMintClick = (token: TokenAccount) => {
+        setSelectedTokenForDisable(token);
+        setIsDisableMintAlertOpen(true);
+    };
+
+    const handleDisableMintConfirm = async () => {
+        if (!selectedTokenForDisable) return;
+        
+        setIsDisableMintAlertOpen(false);
+        await handleDisableMint(selectedTokenForDisable);
+        setSelectedTokenForDisable(null);
+    };
+
+    const handleDisableFreezeClick = (token: TokenAccount) => {
+        setSelectedTokenForDisableFreeze(token);
+        setIsDisableFreezeAlertOpen(true);
+    };
+
+    const handleDisableFreezeConfirm = async () => {
+        if (!selectedTokenForDisableFreeze) return;
+        
+        setIsDisableFreezeAlertOpen(false);
+        await handleDisableFreeze(selectedTokenForDisableFreeze);
+        setSelectedTokenForDisableFreeze(null);
+    };
+
     const TokenCard = ({ token }: { token: TokenAccount }) => {
         const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
 
@@ -584,32 +739,53 @@ export const TokenList = ({
                                 {token.amount <= 0 ? "余额不足" : "转账"}
                             </Button>
                             {token.mintAuthority === publicKey?.toBase58() && (
-                                <Button 
-                                    size="sm" 
-                                    colorScheme="green"
-                                    onClick={() => {
-                                        // 设置铸币地址
-                                        setMintTokenAddress(token.mint);
-                                        
-                                        // 跳转到铸币标签页
-                                        const tabIndex = 3; // 铸币是第四个标签
-                                        const tabs = document.querySelectorAll('[role="tab"]');
-                                        if (tabs[tabIndex]) {
-                                            (tabs[tabIndex] as HTMLElement).click();
-                                        }
-                                    }}
-                                >
-                                    铸币
-                                </Button>
+                                <HStack>
+                                    <Button 
+                                        size="sm" 
+                                        colorScheme="green"
+                                        onClick={() => {
+                                            setMintTokenAddress(token.mint);
+                                            const tabIndex = 3;
+                                            const tabs = document.querySelectorAll('[role="tab"]');
+                                            if (tabs[tabIndex]) {
+                                                (tabs[tabIndex] as HTMLElement).click();
+                                            }
+                                        }}
+                                    >
+                                        铸币
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        colorScheme="red"
+                                        variant="outline"
+                                        onClick={() => handleDisableMintClick(token)}
+                                        isLoading={isDisablingMint && selectedTokenForDisable?.mint === token.mint}
+                                        loadingText="禁用中..."
+                                    >
+                                        禁用铸币权限
+                                    </Button>
+                                </HStack>
                             )}
                             {token.freezeAuthority === publicKey?.toBase58() && (
-                                <Button 
-                                    size="sm" 
-                                    colorScheme="purple"
-                                    variant="outline"
-                                >
-                                    冻结
-                                </Button>
+                                <HStack>
+                                    <Button 
+                                        size="sm" 
+                                        colorScheme="purple"
+                                        variant="outline"
+                                    >
+                                        冻结
+                                    </Button>
+                                    <Button 
+                                        size="sm" 
+                                        colorScheme="red"
+                                        variant="outline"
+                                        onClick={() => handleDisableFreezeClick(token)}
+                                        isLoading={isDisablingFreeze && selectedTokenForDisableFreeze?.mint === token.mint}
+                                        loadingText="禁用中..."
+                                    >
+                                        禁用冻结权限
+                                    </Button>
+                                </HStack>
                             )}
                         </HStack>
                         {hasMetadataAuthority && (
@@ -854,6 +1030,108 @@ export const TokenList = ({
                 isTransferring={isTransferring}
                 handleTransferToken={handleTransferToken}
             />
+            <AlertDialog
+                isOpen={isDisableMintAlertOpen}
+                leastDestructiveRef={cancelRef}
+                onClose={() => {
+                    setIsDisableMintAlertOpen(false);
+                    setSelectedTokenForDisable(null);
+                }}
+            >
+                <AlertDialogOverlay>
+                    <AlertDialogContent>
+                        <AlertDialogHeader fontSize="lg" fontWeight="bold">
+                            确认禁用铸币权限
+                        </AlertDialogHeader>
+
+                        <AlertDialogBody>
+                            <Text>
+                                您确定要禁用 {selectedTokenForDisable?.symbol} 的铸币权限吗？
+                            </Text>
+                            <Text color="red.500" mt={2} fontWeight="bold">
+                                警告：此操作不可逆！
+                            </Text>
+                            <Text mt={2} mb={2}>
+                                禁用后：
+                            </Text>
+                            <UnorderedList>
+                                <ListItem>代币总供应量将永久固定</ListItem>
+                                <ListItem>无法再铸造新的代币</ListItem>
+                                <ListItem>此操作无法撤销</ListItem>
+                            </UnorderedList>
+                        </AlertDialogBody>
+
+                        <AlertDialogFooter>
+                            <Button ref={cancelRef} onClick={() => {
+                                setIsDisableMintAlertOpen(false);
+                                setSelectedTokenForDisable(null);
+                            }}>
+                                取消
+                            </Button>
+                            <Button 
+                                colorScheme="red" 
+                                onClick={handleDisableMintConfirm} 
+                                ml={3}
+                                isLoading={isDisablingMint}
+                                loadingText="禁用中..."
+                            >
+                                确认禁用
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialogOverlay>
+            </AlertDialog>
+            <AlertDialog
+                isOpen={isDisableFreezeMintAlertOpen}
+                leastDestructiveRef={cancelRef}
+                onClose={() => {
+                    setIsDisableFreezeAlertOpen(false);
+                    setSelectedTokenForDisableFreeze(null);
+                }}
+            >
+                <AlertDialogOverlay>
+                    <AlertDialogContent>
+                        <AlertDialogHeader fontSize="lg" fontWeight="bold">
+                            确认禁用冻结权限
+                        </AlertDialogHeader>
+
+                        <AlertDialogBody>
+                            <Text>
+                                您确定要禁用 {selectedTokenForDisableFreeze?.symbol} 的冻结权限吗？
+                            </Text>
+                            <Text color="red.500" mt={2} fontWeight="bold">
+                                警告：此操作不可逆！
+                            </Text>
+                            <Text mt={2} mb={2}>
+                                禁用后：
+                            </Text>
+                            <UnorderedList>
+                                <ListItem>无法冻结任何账户的代币</ListItem>
+                                <ListItem>无法解冻已冻结的账户</ListItem>
+                                <ListItem>此操作无法撤销</ListItem>
+                            </UnorderedList>
+                        </AlertDialogBody>
+
+                        <AlertDialogFooter>
+                            <Button ref={cancelRef} onClick={() => {
+                                setIsDisableFreezeAlertOpen(false);
+                                setSelectedTokenForDisableFreeze(null);
+                            }}>
+                                取消
+                            </Button>
+                            <Button 
+                                colorScheme="red" 
+                                onClick={handleDisableFreezeConfirm} 
+                                ml={3}
+                                isLoading={isDisablingFreeze}
+                                loadingText="禁用中..."
+                            >
+                                确认禁用
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialogOverlay>
+            </AlertDialog>
         </Box>
     );
 }; 
