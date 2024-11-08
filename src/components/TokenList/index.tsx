@@ -78,6 +78,7 @@ interface TokenAccount {
     image?: string;
     mintAuthority?: string;
     freezeAuthority?: string;
+    metadataUpdateAuthority?: string;
 }
 
 interface TokenListProps {
@@ -349,7 +350,8 @@ export const TokenList = ({
                                 metadataJson = await fetchMetadataJson(metadata.data.uri);
                             }
                         }
-
+                        //获取元数据帐户权限信息
+                        const metadataUpdateAuthority = metadata?.updateAuthority;
                         return {
                             mint: parsedInfo.mint,
                             amount: Number(parsedInfo.tokenAmount.amount) / Math.pow(10, parsedInfo.tokenAmount.decimals),
@@ -360,6 +362,7 @@ export const TokenList = ({
                             image: metadataJson?.image,
                             mintAuthority: mintInfo.mintAuthority?.toBase58(),
                             freezeAuthority: mintInfo.freezeAuthority?.toBase58(),
+                            metadataUpdateAuthority: metadataUpdateAuthority?.toBase58(),
                         };
                     } catch (error) {
                         console.error("获取元数据错误:", error);
@@ -651,7 +654,10 @@ export const TokenList = ({
     };
 
     const TokenCard = ({ token }: { token: TokenAccount }) => {
-        const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
+        //const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
+        const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58() || 
+            token.metadataUpdateAuthority === publicKey?.toBase58();
+        //const hasMetadataUpdateAuthority = token.metadataUpdateAuthority === publicKey?.toBase58();
 
         return (
             <Box 
@@ -788,7 +794,7 @@ export const TokenList = ({
                                 </HStack>
                             )}
                         </HStack>
-                        {hasMetadataAuthority && (
+                        {hasMetadataAuthority  && (
                             <Button 
                                 size="sm" 
                                 colorScheme="teal"
@@ -798,13 +804,12 @@ export const TokenList = ({
                                 onClick={() => {
                                     // 自动填充代币地址
                                     setMintAddress(token.mint);
-                                    setName(token.name && token.name !== '未知名称' ? token.name : '');
-                                    setSymbol(token.symbol && token.symbol !== '未知代币' ? token.symbol : '');
-                                    setUri(token.uri || '');
+                                    setName(token.name && token.name !== '未知名称' ? token.name.replace(/\0/g, '') : '');
+                                    setSymbol(token.symbol && token.symbol !== '未知代币' ? token.symbol.replace(/\0/g, '') : '');
+                                    setUri(token.uri? token.uri.replace(/\0/g, '') : '');
                                     
                                     // 根据条件设置标签页
                                     setMetadataTabIndex(token.name && token.name !== '未知名称' ? 1 : 0);
-                                    console.log(token.name && token.name !== '未知名称' ? 1 : 0);
                                     
                                     // 跳转到设置元数据标签页
                                     const tabIndex = 2; // 设置元数据是第三个标签
