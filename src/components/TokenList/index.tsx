@@ -40,6 +40,7 @@ import {
     AlertDialogOverlay,
     UnorderedList,
     ListItem,
+    Icon
 } from '@chakra-ui/react';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { 
@@ -51,8 +52,9 @@ import {
     createTransferInstruction,
     createSetAuthorityInstruction,
     AuthorityType,
+    createInitializeMintInstruction,
 } from '@solana/spl-token';
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Transaction, SystemProgram, ComputeBudgetProgram, SYSVAR_RENT_PUBKEY, TransactionInstruction } from '@solana/web3.js';
 import { CopyIcon, RepeatIcon, SettingsIcon } from '@chakra-ui/icons';
 import { 
     Metadata, 
@@ -60,6 +62,7 @@ import {
 } from '@metaplex-foundation/mpl-token-metadata';
 import React from 'react';
 
+import { FaExchangeAlt } from 'react-icons/fa';
 interface TokenMetadataJson {
     name: string;
     symbol: string;
@@ -255,7 +258,7 @@ export const TokenList = ({
     setMetadataTabIndex,
     setMintTokenAddress
 }: TokenListProps) => {
-    const { connection } = useConnection();
+    const { connection, signTransaction } = useConnection();
     const { publicKey, sendTransaction } = useWallet();
     const [tokens, setTokens] = useState<TokenAccount[]>([]);
     const [solBalance, setSolBalance] = useState(0);
@@ -280,6 +283,7 @@ export const TokenList = ({
     const [isDisableFreezeMintAlertOpen, setIsDisableFreezeAlertOpen] = useState(false);
     const [selectedTokenForDisableFreeze, setSelectedTokenForDisableFreeze] = useState<TokenAccount | null>(null);
     const cancelRef = React.useRef<HTMLButtonElement>(null);
+    const [isCreatingPool, setIsCreatingPool] = useState(false);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -653,11 +657,56 @@ export const TokenList = ({
         setSelectedTokenForDisableFreeze(null);
     };
 
+    // 修改 handleCreatePool 函数
+    const handleCreatePool = async (token: TokenAccount) => {
+        if (!publicKey || !sendTransaction) {
+            toast({
+                title: "错误",
+                description: "请先连接钱包",
+                status: "error",
+                duration: 3000,
+            });
+            return;
+        }
+        // 自动填充代币地址
+        setMintAddress(token.mint);
+        
+        // 根据条件设置标签页
+        setMetadataTabIndex(token.name && token.name !== '未知名称' ? 1 : 0);
+        
+        // 跳转到设置元数据标签页
+        const tabIndex = 4; // 设置元数据是第三个标签
+        const tabs = document.querySelectorAll('[role="tab"]');
+        if (tabs[tabIndex]) {
+            (tabs[tabIndex] as HTMLElement).click();
+        }
+    };
+
+    const handleTokenSelect = (token: TokenAccount) => {
+        setMintAddress(token.mint);
+        setName(token.name);
+        setSymbol(token.symbol);
+        setUri(token.uri);
+        
+        // 自动填充代币地址
+        setMintAddress(token.mint);
+        
+        // 根据条件设置标签页
+        setMetadataTabIndex(token.name && token.name !== '未知名称' ? 1 : 0);
+        
+        // 跳转到设置元数据标签页
+        const tabIndex = 4; // 设置元数据是第三个标签
+        const tabs = document.querySelectorAll('[role="tab"]');
+        if (tabs[tabIndex]) {
+            (tabs[tabIndex] as HTMLElement).click();
+        }
+    };
+
     const TokenCard = ({ token }: { token: TokenAccount }) => {
         //const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58();
         const hasMetadataAuthority = token.mintAuthority === publicKey?.toBase58() || 
             token.metadataUpdateAuthority === publicKey?.toBase58();
-        //const hasMetadataUpdateAuthority = token.metadataUpdateAuthority === publicKey?.toBase58();
+        //const hasMetadataUpdateAuthority = token.metadataUpdateAuthority === publicKey?.toBase0();
 
         return (
             <Box 
@@ -822,6 +871,17 @@ export const TokenList = ({
                                 设置元数据
                             </Button>
                         )}
+                        <Button
+                            size="sm"
+                            colorScheme="blue"
+                            variant="outline"
+                            leftIcon={<Icon as={FaExchangeAlt} />}
+                            onClick={() => handleCreatePool(token)}
+                            isLoading={isCreatingPool}
+                            loadingText="创建中..."
+                        >
+                            创建交易对
+                        </Button>
                     </VStack>
                 </HStack>
             </Box>

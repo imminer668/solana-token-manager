@@ -6,6 +6,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { TokenList } from '../components/TokenList';
 import { TokenMetadata } from '../components/TokenMetadata';
 import { useState } from 'react';
+import CreatePool from '../components/CreatePool';
 
 export default function Home() {
     const { publicKey } = useWallet();
@@ -15,6 +16,7 @@ export default function Home() {
     const [uri, setUri] = useState('');
     const [metadataTabIndex, setMetadataTabIndex] = useState(0);
     const [mintTokenAddress, setMintTokenAddress] = useState('');
+    const [tokenMint, setTokenMint] = useState(null);
 
     return (
         <Container maxW="container.xl" py={8}>
@@ -35,6 +37,7 @@ export default function Home() {
                             <Tab>创建代币&关联ATA账户</Tab>
                             <Tab>设置元数据</Tab>
                             <Tab>铸造代币</Tab>
+                            <Tab>创建流动性池</Tab>
                         </TabList>
 
                         <TabPanels>
@@ -49,7 +52,7 @@ export default function Home() {
                                 />
                             </TabPanel>
                             <TabPanel>
-                                <CreateToken />
+                                <CreateToken setTokenMint={setTokenMint} />
                             </TabPanel>
                             <TabPanel>
                                 <TokenMetadata 
@@ -69,6 +72,9 @@ export default function Home() {
                                     mintAddress={mintTokenAddress}
                                     setMintAddress={setMintTokenAddress}
                                 />
+                            </TabPanel>
+                            <TabPanel>
+                                <CreatePool tokenMint={mintAddress} /> 
                             </TabPanel>
                         </TabPanels>
                     </Tabs>
