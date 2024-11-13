@@ -34,16 +34,23 @@ import {
 } from '@raydium-io/raydium-sdk';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BN } from '@project-serum/anchor';
+import { MarketCreator } from './MarketCreator';
+import { AmountInputs } from './AmountInputs';
+import { PoolCreator } from './PoolCreator';
+import { MarketDetails } from './MarketDetails';
+import { PoolDetails } from './PoolDetails';
 
-
-const CreatePool = ({ tokenMint }: { tokenMint: string }) => {
+const CreatePool: React.FC<{ tokenMint: string }> = ({ tokenMint }) => {
     const { publicKey, sendTransaction, signTransaction } = useWallet();
     const { connection } = useConnection();
     const toast = useToast();
+    const [marketId, setMarketId] = useState<PublicKey | null>(null);
+    const [marketDetails, setMarketDetails] = useState<MarketDetails | null>(null);
+    const [poolDetails, setPoolDetails] = useState<PoolDetails | null>(null);
     const [baseAmount, setBaseAmount] = useState('100');
     const [quoteAmount, setQuoteAmount] = useState('0.1');
     const [isLoading, setIsLoading] = useState(false);
-
+/** 
     const checkAndRevokeAuthority = async (mintAddress: string): Promise<boolean> => {
         try {
             const mintInfo = await getMint(connection, new PublicKey(mintAddress));
@@ -92,7 +99,8 @@ const CreatePool = ({ tokenMint }: { tokenMint: string }) => {
             return false;
         }
     };
-
+    */
+/** 
     const createPool = async () => {
         if (!publicKey || !tokenMint) {
             toast({
@@ -110,11 +118,11 @@ const CreatePool = ({ tokenMint }: { tokenMint: string }) => {
             console.log('开始创建流动性池...');
 
             // 检查代币权限
-            /*const hasRevokedAuthority = await checkAndRevokeAuthority(tokenMint);
-            if (!hasRevokedAuthority) {
-                return;
-            }*/
-
+            //const hasRevokedAuthority = await checkAndRevokeAuthority(tokenMint);
+            //if (!hasRevokedAuthority) {
+              //  return;
+            //}
+ 
             // 1. 创建市场
             console.log('Creating market...');
             let marketId: PublicKey | null = null;
@@ -382,45 +390,48 @@ const CreatePool = ({ tokenMint }: { tokenMint: string }) => {
             setIsLoading(false);
         }
     };
-
+*/
     return (
-        <Box p={4}>
-            <VStack spacing={4} align="stretch">
-                <Text>代币地址: {tokenMint}</Text>
-                
-                <FormControl>
-                    <FormLabel>代币数量</FormLabel>
-                    <NumberInput
-                        value={baseAmount}
-                        onChange={(value) => setBaseAmount(value)}
-                        min={0}
-                    >
-                        <NumberInputField />
-                    </NumberInput>
-                </FormControl>
-
-                <FormControl>
-                    <FormLabel>SOL 数量</FormLabel>
-                    <NumberInput
-                        value={quoteAmount}
-                        onChange={(value) => setQuoteAmount(value)}
-                        min={0}
-                    >
-                        <NumberInputField />
-                    </NumberInput>
-                </FormControl>
-
-                <Button
-                    onClick={createPool}
-                    colorScheme="blue"
-                    isLoading={isLoading}
-                    loadingText="创建中..."
-                    isDisabled={!publicKey || !tokenMint}
-                >
-                    创建流动性池
-                </Button>
-            </VStack>
-        </Box>
+        <VStack spacing={6} w="100%">
+            {!marketId ? (
+                <MarketCreator 
+                    tokenMint={tokenMint} 
+                    onMarketCreated={(id, details) => {
+                        setMarketId(id);
+                        setMarketDetails(details);
+                    }} 
+                />
+            ) : (
+                <>
+                    {marketDetails && <MarketDetails details={marketDetails} />}
+                    {poolDetails ? null : (
+                        <>
+                            <Text fontSize="xl">第二步：创建流动性池</Text>
+                            <AmountInputs
+                                baseAmount={baseAmount}
+                                quoteAmount={quoteAmount}
+                                onBaseAmountChange={setBaseAmount}
+                                onQuoteAmountChange={setQuoteAmount}
+                            />
+                        </>
+                    )}
+                    <PoolCreator
+                        marketId={marketId}
+                        tokenMint={tokenMint}
+                        baseAmount={baseAmount}
+                        quoteAmount={quoteAmount}
+                        onPoolCreated={(details) => {
+                            setPoolDetails(details);
+                            setMarketDetails({
+                                ...marketDetails,
+                                lpMint: details.lpMint,
+                                poolId: details.poolId
+                            });
+                        }}
+                    />
+                </>
+            )}
+        </VStack>
     );
 };
 
