@@ -1,8 +1,8 @@
-import { Box, VStack, Button, Text, Input, useToast, FormControl, InputGroup, InputRightElement, Spinner } from '@chakra-ui/react';
+import { Box, VStack, Button, Text, Input, useToast, FormControl, InputGroup, InputRightElement, Spinner, Progress, Center } from '@chakra-ui/react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { Keypair, Transaction, PublicKey } from '@solana/web3.js';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
     NATIVE_MINT,
     getMint,
@@ -23,6 +23,7 @@ import {
 } from '@raydium-io/raydium-sdk';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { BN } from '@project-serum/anchor';
+
 interface MarketCreatorProps {
   tokenMint: string;
   onMarketCreated: (marketId: PublicKey, marketDetails: MarketDetails) => void;
@@ -41,11 +42,39 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
   const { connection } = useConnection();
   const [isCreating, setIsCreating] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [manualMarketId, setManualMarketId] = useState('');
   const toast = useToast();
+  const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
+
+  const checkTimeout = (operation: string) => {
+    const timeout = setTimeout(() => {
+      toast({
+        title: "请求超时",
+        description: `${operation}操作超时，请检查网络连接后重试`,
+        status: "error",
+        duration: 5000,
+        isClosable: true
+      });
+      setIsCreating(false);
+      setIsValidating(false);
+      setProgress(0);
+    }, 60000); // 60秒超时
+
+    setTimeoutId(timeout);
+    return timeout;
+  };
+
+  const clearTimeoutCheck = (timeout: NodeJS.Timeout) => {
+    clearTimeout(timeout);
+    setTimeoutId(null);
+  };
 
   const createMarket = async () => {
     setIsCreating(true);
+    setProgress(0);
+    //const timeout = checkTimeout("创建市场");
+
     if (!publicKey || !tokenMint) {
         toast({
             title: "错误",
@@ -67,14 +96,17 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
 
         // 1. 创建市场
        console.log('Creating market...');
+       
+       setProgress(5);
         let marketId: PublicKey | null = null;
         
         const baseMint = new PublicKey(tokenMint);
+        setProgress(10);
         const quoteMint = NATIVE_MINT;
         const marketProgramId = DEVNET_PROGRAM_ID.OPENBOOK_MARKET;
         //const raydiumProgram = MAINNET_PROGRAM_ID;
         const raydiumProgram = DEVNET_PROGRAM_ID;
-         
+        setProgress(30);
         const { innerTransactions, address } = await MarketV2.makeCreateMarketInstructionSimple({
             connection,
             wallet: publicKey,
@@ -95,7 +127,7 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
         console.log("address ====>", address); 
         console.log("marketId ===>", address.marketId.toBase58());
         marketId = address.marketId;
-
+        setProgress(50);
         for (let i = 0; i < innerTransactions.length; i++) {
             const transaction = new Transaction();
             for (let j = 0; j < innerTransactions[i].instructions.length; j++) {
@@ -113,11 +145,15 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
                     await connection.confirmTransaction(signature, 'confirmed');
                 } catch (err) {
                     console.log("transaction error ===>", err);
+                    throw err;
                     marketId = null;
                 }
             }
+            setProgress(50 + 50 * (i+1) / innerTransactions.length);
 
         }
+        //clearTimeoutCheck(timeout);
+        setProgress(100);
         toast({
             title: "成功",
             description: `成功创建市场\nMarket ID: ${marketId?.toBase58()}`,
@@ -132,21 +168,35 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
             baseVault: '',
             quoteVault: ''
         });
-    } catch (error) {
-      toast({
-        title: "错误",
-        description: `创建市场失败: ${error.message}`,
-        status: "error",
-        duration: 5000,
-        isClosable: true
-      });
+    } catch (error: any) {
+        //clearTimeoutCheck(timeout);
+        if (error.message === 'User rejected the request.') {
+            toast({
+                title: "错误",
+                description: `用户拒绝了钱包请求`,
+                status: "error",
+                duration: 5000,
+                isClosable: true
+            });
+        } else {
+            toast({
+                title: "错误",
+                description: `创建市场失败: ${error.message}`,
+                status: "error",
+                duration: 5000,
+                isClosable: true
+            });
+        }
     } finally {
       setIsCreating(false);
+      setTimeout(() => setProgress(0), 1000);
     }
   };
 
   const useExistingMarket = async () => {
     setIsValidating(true);
+    //const timeout = checkTimeout("验证市场");
+
     try {
       const marketId = new PublicKey(manualMarketId);
       const baseMint = new PublicKey(tokenMint);
@@ -189,6 +239,7 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
         quoteVault: ''
       });
 
+      //clearTimeoutCheck(timeout);
       toast({
         title: "成功",
         description: "市场验证成功",
@@ -196,35 +247,90 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
         duration: 3000,
         isClosable: true
       });
-    } catch (error) {
-      toast({
-        title: "错误",
-        description: error.message || "无效的市场ID",
-        status: "error",
-        duration: 5000,
-        isClosable: true
-      });
+    } catch (error: any) {
+      //clearTimeoutCheck(timeout);
+      //判断是否连接超时
+      if (error.message.includes('TypeError: Failed to fetch')) {
+        toast({
+          title: "错误",
+          description: "连接超时，请检查网络连接后重试",
+          status: "error",
+          duration: 5000,
+          isClosable: true
+        });
+      } else {
+        toast({
+          title: "错误",
+          description: error.message || "无效的市场ID",
+          status: "error",
+          duration: 5000,
+          isClosable: true
+        });
+      }
     } finally {
       setIsValidating(false);
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [timeoutId]);
+
   return (
     <VStack spacing={4} w="100%">
-      <Text fontSize="xl">第一步：创建或选择市场</Text>
+      <Center w="100%" py={4}>
+        <Text 
+          fontSize="2xl" 
+          fontWeight="medium"
+          bgGradient="linear(to-r, blue.400, blue.600)"
+          bgClip="text"
+        >
+          第一步：创建或选择市场
+        </Text>
+      </Center>
+
       <Box w="100%" p={4} borderWidth={1} borderRadius="md">
         <VStack spacing={4}>
           <Text>代币地址: {tokenMint}</Text>
-          <Button
-            onClick={createMarket}
-            colorScheme="blue"
-            isLoading={isCreating}
-            loadingText="创建中..."
-            w="100%"
-          >
-            创建新市场
-          </Button>
+          <VStack w="100%" spacing={2}>
+            <Button
+              onClick={createMarket}
+              colorScheme="blue"
+              isLoading={isCreating}
+              loadingText="创建中..."
+              w="100%"
+              size="lg"
+            >
+              创建新市场
+            </Button>
+            {isCreating && (
+              <Box w="100%">
+                <Progress 
+                  size="sm" 
+                  value={progress} 
+                  colorScheme="blue" 
+                  hasStripe 
+                  isAnimated
+                  borderRadius="full"
+                />
+                <Text 
+                  fontSize="sm" 
+                  color="gray.500" 
+                  textAlign="center"
+                  mt={1}
+                >
+                  {progress === 100 ? "创建完成" : "创建中,请耐心等待,不要重复点击,等待交易确认..."}
+                </Text>
+              </Box>
+            )}
+          </VStack>
+
           <Text>或</Text>
+
           <FormControl>
             <InputGroup>
               <Input
@@ -240,6 +346,7 @@ export const MarketCreator: React.FC<MarketCreatorProps> = ({ tokenMint, onMarke
               )}
             </InputGroup>
           </FormControl>
+
           <Button
             onClick={useExistingMarket}
             colorScheme="green"

@@ -395,6 +395,15 @@ export const TokenList = ({
             await Promise.race([fetchPromise, timeoutPromise]);
 
         } catch (error) {
+            if (error.message.includes('TypeError: Failed to fetch')) {
+                toast({
+                  title: "错误",
+                  description: "连接超时，请检查网络连接后重试",
+                  status: "error",
+                  duration: 5000,
+                  isClosable: true
+                });
+              }
             console.error("获取代币列表错误:", error);
             setError((error as Error).message);
             if ((error as Error).message.includes('超时')) {
