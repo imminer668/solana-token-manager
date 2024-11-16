@@ -7,6 +7,7 @@ import { TokenList } from '../components/TokenList';
 import { TokenMetadata } from '../components/TokenMetadata';
 import { useState } from 'react';
 import CreatePool from '../components/CreatePool';
+import { BurnToken } from '../components/BurnToken';
 
 export default function Home() {
     const { publicKey } = useWallet();
@@ -17,6 +18,7 @@ export default function Home() {
     const [metadataTabIndex, setMetadataTabIndex] = useState(0);
     const [mintTokenAddress, setMintTokenAddress] = useState('');
     const [tokenMint, setTokenMint] = useState(null);
+    const [activeTab, setActiveTab] = useState(0);
 
     return (
         <Container maxW="container.xl" py={8}>
@@ -31,13 +33,18 @@ export default function Home() {
                         当前钱包地址: {publicKey.toString()}
                     </Heading>
                     
-                    <Tabs mt={6}>
+                    <Tabs 
+                        mt={6} 
+                        index={activeTab}
+                        onChange={(index) => setActiveTab(index)}
+                    >
                         <TabList>
                             <Tab>代币列表</Tab>
                             <Tab>创建代币&关联ATA账户</Tab>
                             <Tab>设置元数据</Tab>
                             <Tab>铸造代币</Tab>
                             <Tab>创建流动性池</Tab>
+                            <Tab>销毁代币</Tab>
                         </TabList>
 
                         <TabPanels>
@@ -74,7 +81,13 @@ export default function Home() {
                                 />
                             </TabPanel>
                             <TabPanel>
-                                <CreatePool tokenMint={mintAddress} /> 
+                                <CreatePool 
+                                    tokenMint={mintAddress} 
+                                    isActive={activeTab === 4} 
+                                />
+                            </TabPanel>
+                            <TabPanel>
+                                <BurnToken mintAddress={mintAddress} />
                             </TabPanel>
                         </TabPanels>
                     </Tabs>

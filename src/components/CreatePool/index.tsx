@@ -8,7 +8,7 @@ import {
     createSetAuthorityInstruction,
     AuthorityType
 } from '@solana/spl-token';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { 
     Box,
     VStack,
@@ -18,7 +18,14 @@ import {
     NumberInput,
     NumberInputField,
     useToast,
-    Text
+    Text,
+    AlertDialog,
+    AlertDialogBody,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogContent,
+    AlertDialogOverlay,
+    useDisclosure
 } from '@chakra-ui/react';
 import { 
     MAINNET_PROGRAM_ID,
@@ -40,7 +47,12 @@ import { PoolCreator } from './PoolCreator';
 import { MarketDetails } from './MarketDetails';
 import { PoolDetails } from './PoolDetails';
 
-const CreatePool: React.FC<{ tokenMint: string }> = ({ tokenMint }) => {
+interface CreatePoolProps {
+    tokenMint: string;
+    isActive: boolean;
+}
+
+const CreatePool: React.FC<CreatePoolProps> = ({ tokenMint, isActive }) => {
     const { publicKey, sendTransaction, signTransaction } = useWallet();
     const { connection } = useConnection();
     const toast = useToast();
@@ -50,6 +62,33 @@ const CreatePool: React.FC<{ tokenMint: string }> = ({ tokenMint }) => {
     const [baseAmount, setBaseAmount] = useState('100');
     const [quoteAmount, setQuoteAmount] = useState('0.1');
     const [isLoading, setIsLoading] = useState(false);
+    const [hasChanges, setHasChanges] = useState(false);
+    const { isOpen, onOpen, onClose } = useDisclosure();
+    const cancelRef = useRef();
+
+    useEffect(() => {
+        if (marketId || marketDetails || poolDetails || 
+            baseAmount !== '100' || quoteAmount !== '0.1') {
+            setHasChanges(true);
+        }
+    }, [marketId, marketDetails, poolDetails, baseAmount, quoteAmount]);
+
+    useEffect(() => {
+        if (!isActive && hasChanges) {
+            onOpen();
+        }
+    }, [isActive, hasChanges]);
+
+    const handleReset = () => {
+        setMarketId(null);
+        setMarketDetails(null);
+        setPoolDetails(null);
+        setBaseAmount('100');
+        setQuoteAmount('0.1');
+        setHasChanges(false);
+        onClose();
+    };
+
 /** 
     const checkAndRevokeAuthority = async (mintAddress: string): Promise<boolean> => {
         try {
@@ -392,46 +431,101 @@ const CreatePool: React.FC<{ tokenMint: string }> = ({ tokenMint }) => {
     };
 */
     return (
-        <VStack spacing={6} w="100%">
-            {!marketId ? (
-                <MarketCreator 
-                    tokenMint={tokenMint} 
-                    onMarketCreated={(id, details) => {
-                        setMarketId(id);
-                        setMarketDetails(details);
-                    }} 
-                />
-            ) : (
-                <>
-                    {marketDetails && <MarketDetails details={marketDetails} />}
-                    {poolDetails ? null : (
-                        <>
-                            <Text fontSize="xl">第二步：创建流动性池</Text>
-                            <AmountInputs
-                                baseAmount={baseAmount}
-                                quoteAmount={quoteAmount}
-                                onBaseAmountChange={setBaseAmount}
-                                onQuoteAmountChange={setQuoteAmount}
-                            />
-                        </>
-                    )}
-                    <PoolCreator
-                        marketId={marketId}
-                        tokenMint={tokenMint}
-                        baseAmount={baseAmount}
-                        quoteAmount={quoteAmount}
-                        onPoolCreated={(details) => {
-                            setPoolDetails(details);
-                            setMarketDetails({
-                                ...marketDetails,
-                                lpMint: details.lpMint,
-                                poolId: details.poolId
-                            });
-                        }}
+        <>
+            <VStack spacing={6} w="100%">
+                {!marketId ? (
+                    <MarketCreator 
+                        tokenMint={tokenMint} 
+                        onMarketCreated={(id, details) => {
+                            setMarketId(id);
+                            setMarketDetails(details);
+                        }} 
                     />
-                </>
-            )}
-        </VStack>
+                ) : (
+                    <>
+                        {marketDetails && <MarketDetails details={marketDetails} />}
+                        {poolDetails ? null : (
+                            <>
+                                <Text fontSize="xl">第二步：创建流动性池</Text>
+                                <AmountInputs
+                                    baseAmount={baseAmount}
+                                    quoteAmount={quoteAmount}
+                                    onBaseAmountChange={setBaseAmount}
+                                    onQuoteAmountChange={setQuoteAmount}
+                                />
+                            </>
+                        )}
+                        <PoolCreator
+                            marketId={marketId}
+                            tokenMint={tokenMint}
+                            baseAmount={baseAmount}
+                            quoteAmount={quoteAmount}
+                            onPoolCreated={(details) => {
+                                setPoolDetails(details);
+                                setMarketDetails({
+                                    ...marketDetails,
+                                    lpMint: details.lpMint,
+                                    poolId: details.poolId
+                                });
+                            }}
+                        />
+                    </>
+                )}
+            </VStack>
+
+            <AlertDialog
+                isOpen={isOpen}
+                leastDestructiveRef={cancelRef}
+                onClose={onClose}
+                isCentered
+            >
+                <AlertDialogOverlay>
+                    <AlertDialogContent>
+                        <AlertDialogHeader 
+                            fontSize="lg" 
+                            fontWeight="bold"
+                            color="red.500"
+                        >
+                            离开当前页面，数据是否保留？
+                        </AlertDialogHeader>
+
+                        <AlertDialogBody>
+                            <Text mb={4}>
+                                您有未完成的流动性池创建操作，离开后数据将被重置。
+                            </Text>
+                            <Text 
+                                fontSize="sm" 
+                                color="gray.500"
+                            >
+                                建议您完成当前操作后再切换页面。
+                                <br />
+                                离开保留数据，只有直接切换回页面，数据才不会重置。
+                                <br />
+                                点击空白处 或者 ESC 键也可以关闭当前弹窗。
+                            </Text>
+                        </AlertDialogBody>
+
+                        <AlertDialogFooter>
+                            <Button 
+                                ref={cancelRef} 
+                                onClick={onClose}
+                                size="md"
+                            >
+                                离开保留数据
+                            </Button>
+                            <Button 
+                                colorScheme="red" 
+                                onClick={handleReset} 
+                                ml={3}
+                                size="md"
+                            >
+                                离开重置数据
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialogOverlay>
+            </AlertDialog>
+        </>
     );
 };
 

@@ -62,7 +62,7 @@ import {
 } from '@metaplex-foundation/mpl-token-metadata';
 import React from 'react';
 
-import { FaExchangeAlt } from 'react-icons/fa';
+import { FaExchangeAlt ,FaFire} from 'react-icons/fa';
 interface TokenMetadataJson {
     name: string;
     symbol: string;
@@ -284,6 +284,7 @@ export const TokenList = ({
     const [selectedTokenForDisableFreeze, setSelectedTokenForDisableFreeze] = useState<TokenAccount | null>(null);
     const cancelRef = React.useRef<HTMLButtonElement>(null);
     const [isCreatingPool, setIsCreatingPool] = useState(false);
+    const [activeTab, setActiveTab] = useState(0);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -516,13 +517,23 @@ export const TokenList = ({
             setTokenSendAmount('');
 
         } catch (error) {
-            console.error("转账代币错误:", error);
-            toast({
-                title: "错误",
-                description: "转账失败: " + (error as Error).message,
-                status: "error",
-                duration: 3000,
-            });
+            if (error.message === 'User rejected the request.') {
+                toast({
+                    title: "错误",
+                    description: `转账失败，用户拒绝了钱包请求`,
+                    status: "error",
+                    duration: 5000,
+                    isClosable: true
+                });
+            } else {
+                console.error("转账代币错误:", error);
+                toast({
+                    title: "错误",
+                    description: "转账失败: " + (error as Error).message,
+                    status: "error",
+                    duration: 3000,
+                });
+            }
         } finally {
             setIsTransferring(false);
         }
@@ -572,13 +583,23 @@ export const TokenList = ({
             fetchTokens();
 
         } catch (error) {
-            console.error("禁用铸币权限错误:", error);
-            toast({
-                title: "错误",
-                description: "禁用铸币权限失败: " + (error as Error).message,
-                status: "error",
-                duration: 3000,
-            });
+            if (error.message === 'User rejected the request.') {
+                toast({
+                    title: "错误",
+                    description: `禁用铸币权限失败，用户拒绝了钱包请求`,
+                    status: "error",
+                    duration: 5000,
+                    isClosable: true
+                });
+            } else {
+                console.error("禁用铸币权限错误:", error);
+                toast({
+                    title: "错误",
+                    description: "禁用铸币权限失败: " + (error as Error).message,
+                    status: "error",
+                    duration: 3000,
+                });
+            }
         } finally {
             setIsDisablingMint(false);
         }
@@ -628,13 +649,23 @@ export const TokenList = ({
             fetchTokens();
 
         } catch (error) {
-            console.error("禁用冻结权限错误:", error);
-            toast({
-                title: "错误",
-                description: "禁用冻结权限失败: " + (error as Error).message,
-                status: "error",
-                duration: 3000,
-            });
+            if (error.message === 'User rejected the request.') {
+                toast({
+                    title: "错误",
+                    description: `禁用冻结权限失败，用户拒绝了钱包请求`,
+                    status: "error",
+                    duration: 5000,
+                    isClosable: true
+                });
+            } else {
+                console.error("禁用冻结权限错误:", error);
+                toast({
+                    title: "错误",
+                    description: "禁用冻结权限失败: " + (error as Error).message,
+                    status: "error",
+                    duration: 3000,
+                });
+            }
         } finally {
             setIsDisablingFreeze(false);
         }
@@ -852,6 +883,7 @@ export const TokenList = ({
                                 </HStack>
                             )}
                         </HStack>
+                        <HStack>
                         {hasMetadataAuthority  && (
                             <Button 
                                 size="sm" 
@@ -883,7 +915,8 @@ export const TokenList = ({
                         <Button
                             size="sm"
                             colorScheme="blue"
-                            variant="outline"
+                            variant="ghost"
+                            width="full"
                             leftIcon={<Icon as={FaExchangeAlt} />}
                             onClick={() => handleCreatePool(token)}
                             isLoading={isCreatingPool}
@@ -891,6 +924,24 @@ export const TokenList = ({
                         >
                             创建交易对
                         </Button>
+                        <Button
+                            size="sm"
+                            colorScheme="red"
+                            variant="ghost"
+                            leftIcon={<Icon as={FaFire} />}
+                            onClick={() => {
+                                setMintAddress(token.mint);
+                               // 跳转到销毁标签页
+                               const tabIndex = 5; // 销毁是第五个标签
+                               const tabs = document.querySelectorAll('[role="tab"]');
+                               if (tabs[tabIndex]) {
+                                   (tabs[tabIndex] as HTMLElement).click();
+                               }
+                            }}
+                        >
+                            销毁
+                        </Button>
+                        </HStack>
                     </VStack>
                 </HStack>
             </Box>
@@ -1003,13 +1054,23 @@ export const TokenList = ({
             });
 
         } catch (error) {
-            console.error("发送 SOL 错误:", error);
-            toast({
-                title: "错误",
-                description: "发送 SOL 失败: " + (error as Error).message,
-                status: "error",
-                duration: 3000,
-            });
+            if (error.message === 'User rejected the request.') {
+                toast({
+                    title: "错误",
+                    description: `转账SOL失败，用户拒绝了钱包请求`,
+                    status: "error",
+                    duration: 5000,
+                    isClosable: true
+                });
+            } else {
+                console.error("发送 SOL 错误:", error);
+                toast({
+                    title: "错误",
+                    description: "发送 SOL 失败: " + (error as Error).message,
+                    status: "error",
+                    duration: 3000,
+                });
+            }
         } finally {
             setIsSendingSol(false);
         }
