@@ -12,6 +12,7 @@ import {
     NumberInputStepper,
     InputGroup,
     InputRightElement,
+    InputLeftElement,
     Alert,
     AlertIcon,
     HStack,
@@ -41,12 +42,14 @@ import {
     PROGRAM_ID as TOKEN_METADATA_PROGRAM_ID,
     Metadata
 } from '@metaplex-foundation/mpl-token-metadata';
+import { SearchIcon } from '@chakra-ui/icons';
+import { set } from '@project-serum/anchor/dist/cjs/utils/features';
 
 interface BurnTokenProps {
     mintAddress: string;
 }
 
-export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress }) => {
+export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress: defaultMintAddress }) => {
     const { connection } = useConnection();
     const { publicKey, sendTransaction } = useWallet();
     const [amount, setAmount] = useState('');
@@ -54,9 +57,12 @@ export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress }) => {
     const [balance, setBalance] = useState<number | null>(null);
     const [decimals, setDecimals] = useState<number>(0);
     const [tokenSymbol, setTokenSymbol] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingToken, setIsLoadingToken] = useState(false);
     const toast = useToast();
     const [isAlertOpen, setIsAlertOpen] = useState(false);
     const cancelRef = useRef<HTMLButtonElement>(null);
+    const [mintAddress, setMintAddress] = useState(defaultMintAddress);
 
     // 获取元数据地址
     const getMetadataAddress = (mint: PublicKey): PublicKey => {
@@ -76,6 +82,7 @@ export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress }) => {
         if (!publicKey || !mintAddress) return;
 
         try {
+            setIsLoading(true);
             const mint = await getMint(connection, new PublicKey(mintAddress));
             setDecimals(mint.decimals);
 
@@ -101,13 +108,62 @@ export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress }) => {
             }
         } catch (error) {
             console.error('获取代币信息失败:', error);
+            toast({
+                title: "错误",
+                description: "获取代币信息失败",
+                status: "error",
+                duration: 5000,
+                isClosable: true,
+            });
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    // 修复 useEffect 的使用
+    // 监听默认代币地址变化
     useEffect(() => {
-        fetchTokenInfo();
-    }, [mintAddress, publicKey, connection]);
+        setMintAddress(defaultMintAddress);
+        if (defaultMintAddress) {
+            fetchTokenInfo();
+        }
+    }, [defaultMintAddress]);
+
+    // 处理代币地址输入
+    const handleMintAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setMintAddress(e.target.value);
+        setBalance(null);
+        setTokenSymbol('');
+    };
+
+    // 加载代币信息
+    const handleLoadToken = async () => {
+        if (!mintAddress || !publicKey) return;
+
+        try {
+            setIsLoadingToken(true);
+            setBalance(null);
+            setTokenSymbol('');
+            
+            // 验证地址格式
+            try {
+                new PublicKey(mintAddress);
+            } catch (error) {
+                throw new Error('无效的代币地址');
+            }
+
+            await fetchTokenInfo();
+        } catch (error: any) {
+            toast({
+                title: "错误",
+                description: error.message || "加载代币信息失败",
+                status: "error",
+                duration: 5000,
+                isClosable: true,
+            });
+        } finally {
+            setIsLoadingToken(false);
+        }
+    };
 
     // 设置最大值
     const setMaxAmount = () => {
@@ -207,19 +263,48 @@ export const BurnToken: React.FC<BurnTokenProps> = ({ mintAddress }) => {
                     请注意：代币销毁后无法恢复，请谨慎操作！
                 </Alert>
 
+                <FormControl>
+                    <FormLabel>代币地址</FormLabel>
+                    <InputGroup>
+                        <InputLeftElement
+                            pointerEvents="none"
+                            children={<SearchIcon color="gray.300" />}
+                        />
+                        <Input
+                            value={mintAddress}
+                            onChange={handleMintAddressChange}
+                            placeholder="输入代币地址"
+                            pr="4.5rem"
+                        />
+                        <InputRightElement width="4.5rem">
+                            <Button
+                                h="1.75rem"
+                                size="sm"
+                                onClick={handleLoadToken}
+                                isLoading={isLoadingToken}
+                                disabled={!mintAddress || mintAddress.length === 0}
+                            >
+                                加载
+                            </Button>
+                        </InputRightElement>
+                    </InputGroup>
+                </FormControl>
+
                 <Card>
                     <CardBody>
                         <Stat>
                             <StatLabel>当前余额</StatLabel>
                             <StatNumber>
-                                {balance === null ? (
+                                {isLoading || isLoadingToken ? (
                                     <Text as="span" color="gray.500">加载中...</Text>
+                                ) : balance === null ? (
+                                    <Text as="span" color="gray.500">未加载</Text>
                                 ) : (
                                     `${balance} ${tokenSymbol || '个代币'}`
                                 )}
                             </StatNumber>
                             <StatHelpText>
-                                代币地址: {mintAddress}
+                                代币地址: {mintAddress || '未输入'}
                             </StatHelpText>
                         </Stat>
                     </CardBody>
