@@ -115,7 +115,12 @@ const TransferModal = React.memo(({
     isTransferring: boolean;
     handleTransferToken: (token: TokenAccount, recipientAddress: string, amount: string) => Promise<void>;
 }) => (
-    <Modal isOpen={isOpen} onClose={onClose}>
+    <Modal 
+        isOpen={isOpen} 
+        onClose={onClose}
+        closeOnOverlayClick={false}
+        isCentered
+    >
         <ModalOverlay />
         <ModalContent>
             <ModalHeader>
@@ -184,6 +189,9 @@ const TransferModal = React.memo(({
         </ModalContent>
     </Modal>
 ));
+
+// 添加显示名称以解决 lint 警告
+TransferModal.displayName = 'TransferModal';
 
 // 将 SolTransferForm 抽离为独立组件并使用 React.memo
 const SolTransferForm = React.memo(({ 
