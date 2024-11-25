@@ -875,8 +875,17 @@ export const TokenList = ({
                                         size="sm" 
                                         colorScheme="purple"
                                         variant="outline"
+                                        onClick={() => {
+                                           setMintAddress(token.mint);
+                                           // 跳转到冻结标签页
+                                           const tabIndex = 6; // 冻结是第六个标签
+                                           const tabs = document.querySelectorAll('[role="tab"]');
+                                           if (tabs[tabIndex]) {
+                                               (tabs[tabIndex] as HTMLElement).click();
+                                           }
+                                        }}
                                     >
-                                        冻结
+                                        冻结&解冻
                                     </Button>
                                     <Button 
                                         size="sm" 
