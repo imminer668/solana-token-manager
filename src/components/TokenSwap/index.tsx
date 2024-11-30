@@ -39,21 +39,36 @@ import {
     getAssociatedTokenAddress,
     getAccount,
     TOKEN_PROGRAM_ID,
+    createAssociatedTokenAccountInstruction,
+    createSyncNativeInstruction,
+    createCloseAccountInstruction,
+    NATIVE_MINT,
 } from '@solana/spl-token';
 import { TokenSelectModal } from './TokenSelectModal';
 import { 
     Liquidity,
-    Token as RaydiumToken,
+    Token,
     TokenAmount,
     Percent,
     Currency,
     LIQUIDITY_STATE_LAYOUT_V4,
     MARKET_STATE_LAYOUT_V3,
-    LiquidityPoolInfo,
-    LiquidityPoolKeys,
-    LiquidityPoolData,
+    SPL_ACCOUNT_LAYOUT,
+    RAYDIUM_MAINNET,
+    ENDPOINT,
+    jsonInfo2PoolKeys,
+    Market,
+    SPL_MINT_LAYOUT
 } from '@raydium-io/raydium-sdk';
+import { LiquidityPoolData, LiquidityPoolKeys, LiquidityPoolInfo } from './types';
 import BN from 'bn.js';
+import { SwapConfirmModal } from './SwapConfirmModal';
+import { 
+    Transaction,
+    SystemProgram,
+    LAMPORTS_PER_SOL,
+} from '@solana/web3.js';
+import { getPoolInfo } from './poolServices';
 
 interface TokenInfo {
     mint: string;
@@ -64,9 +79,30 @@ interface TokenInfo {
     isNative?: boolean;
 }
 
+// 添加错误类型
+interface SwapError extends Error {
+    message: string;
+}
+
+interface SwapState {
+    tokenA: TokenInfo | null;
+    tokenB: TokenInfo | null;
+    amountIn: string;
+    amountOut: string;
+    slippage: number;
+    pool: LiquidityPoolData | null;
+}
+
+interface SwapComputation {
+    amountOut: string;
+    minAmountOut: string;
+    priceImpact: string;
+    exchangeRate: string;
+}
+
 export const TokenSwap: React.FC = () => {
     const { connection } = useConnection();
-    const { publicKey } = useWallet();
+    const { publicKey, sendTransaction } = useWallet();
     const toast = useToast();
 
     const [amountIn, setAmountIn] = useState('');
@@ -80,8 +116,11 @@ export const TokenSwap: React.FC = () => {
     const [exchangeRate, setExchangeRate] = useState<string | null>(null);
     const [priceImpact, setPriceImpact] = useState<string | null>(null);
     const [isLoadingRate, setIsLoadingRate] = useState(false);
-    const [slippage, setSlippage] = useState(0.5); // 0.5% 默认滑点
+    const [slippage, setSlippage] = useState<number>(0.5); // 0.5% 默认滑点
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [isSwapping, setIsSwapping] = useState(false);
+
 
     // SOL 代币配置
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -145,88 +184,21 @@ export const TokenSwap: React.FC = () => {
         try {
             setIsLoadingRate(true);
             
-            // 直接使用已知的池子地址
-            const ammId = new PublicKey('');
-            const poolAccount = await connection.getAccountInfo(ammId);
-
-            if (!poolAccount) {
-                throw new Error('流动性池不存在');
-            }
-
-            const poolInfo = LIQUIDITY_STATE_LAYOUT_V4.decode(poolAccount.data);
-            console.log("原始池子信息:", {
-                baseTokenMint: poolInfo.baseMint.toBase58(),
-                quoteTokenMint: poolInfo.quoteMint.toBase58(),
-                baseDecimal: poolInfo.baseDecimal.toNumber(),
-                quoteDecimal: poolInfo.quoteDecimal.toNumber(),
-                baseVault: poolInfo.baseVault.toBase58(),
-                quoteVault: poolInfo.quoteVault.toBase58(),
-                status: poolInfo.status.toNumber(),
+            // 使用新的函数
+            //const { poolData } = await getPoolInfo(connection, {
+            //    tokenPair: [tokenAMint, tokenBMint]
+            //});
+            const { poolData } = await getPoolInfo(connection, {
+                ammId: "自定义"
             });
-
-            // 获取储备金信息
-            const baseVaultInfo = await getAccount(connection, poolInfo.baseVault);
-            const quoteVaultInfo = await getAccount(connection, poolInfo.quoteVault);
-
-            console.log("储备金账户信息:", {
-                baseAmount: baseVaultInfo.amount.toString(),
-                quoteAmount: quoteVaultInfo.amount.toString(),
-            });
-
-            // 验证代币对是否匹配
-            const baseTokenMint = poolInfo.baseMint.toBase58();
-            const quoteTokenMint = poolInfo.quoteMint.toBase58();
             
-            const isMatch = (
-                (baseTokenMint === tokenAMint && quoteTokenMint === tokenBMint) ||
-                (baseTokenMint === tokenBMint && quoteTokenMint === tokenAMint)
-            );
-
-            if (!isMatch) {
-                throw new Error('代币对不匹配');
-            }
-
-            // 构建池子数据
-            const pool: LiquidityPoolData = {
-                poolKeys: {
-                    id: ammId,
-                    baseMint: poolInfo.baseMint,
-                    quoteMint: poolInfo.quoteMint,
-                    lpMint: poolInfo.lpMint,
-                    baseVault: poolInfo.baseVault,
-                    quoteVault: poolInfo.quoteVault,
-                    marketId: poolInfo.marketId,
-                    marketProgramId: poolInfo.marketProgramId,
-                    targetOrders: poolInfo.targetOrders,
-                    withdrawQueue: poolInfo.withdrawQueue,
-                    lpVault: poolInfo.lpVault,
-                    owner: poolInfo.owner
-                },
-                poolInfo: {
-                    baseDecimals: poolInfo.baseDecimal,
-                    quoteDecimals: poolInfo.quoteDecimal,
-                    lpDecimals: poolInfo.lpDecimal,
-                    baseReserve: new BN(baseVaultInfo.amount.toString()),
-                    quoteReserve: new BN(quoteVaultInfo.amount.toString()),
-                    lpSupply: new BN(poolInfo.lpSupply || 0),
-                    startTime: new BN(poolInfo.startTime || 0)
-                }
-            };
-
-            console.log("处理后的池子数据:", {
-                baseReserve: pool.poolInfo.baseReserve.toString(),
-                quoteReserve: pool.poolInfo.quoteReserve.toString(),
-                baseDecimals: pool.poolInfo.baseDecimals.toString(),
-                quoteDecimals: pool.poolInfo.quoteDecimals.toString(),
-            });
-
-            setPool(pool);
-            return pool;
+            setPool(poolData);
+            return poolData;
         } catch (error) {
             console.error('获取流动性池信息失败:', error);
             toast({
                 title: "错误",
-                description: `获取流动性池信息失败: ${error.message}`,
+                description: `获取流动性池信息失败: ${(error as Error).message}`,
                 status: "error",
             });
             return null;
@@ -236,113 +208,92 @@ export const TokenSwap: React.FC = () => {
     };
 
     // 计算兑换比率
-    const calculateExchangeRate = async (amountIn: string) => {
-        if (!pool || !tokenA || !tokenB || !amountIn || Number(amountIn) <= 0) {
-            setExchangeRate(null);
-            setPriceImpact(null);
-            setAmountOut('');
-            return;
-        }
-
-        if (!tokenA.decimals || !tokenB.decimals) {
-            console.error('代币精度未定义:', { tokenA, tokenB });
-            toast({
-                title: "错误",
-                description: "代币信息不完整",
-                status: "error",
-            });
+    const calculateExchangeRate = async () => {
+        if (!tokenA || !tokenB || !amountIn || !pool) {
             return;
         }
 
         try {
             setIsLoadingRate(true);
+            
+            // 创建代币对象
+            const inputToken = new Token(TOKEN_PROGRAM_ID, new PublicKey(tokenA.mint), tokenA.decimals);
+            
+            // 解析输入金额
+            const amountNumber = parseFloat(amountIn);
+            if (isNaN(amountNumber)) {
+                console.error('输入的金额不是有效数字');
+                return;
+            }
 
-            // 获取池子信息中的储备金
-            const baseReserve = pool.poolInfo.baseReserve;
-            const quoteReserve = pool.poolInfo.quoteReserve;
+            // 创建 TokenAmount 对象
+            const amountInBN = new TokenAmount(
+                inputToken,
+                amountNumber,
+                false
+            );
+            
+            console.log('创建的 TokenAmount 对象:', {
+                raw: amountInBN.raw.toString(),
+                fixed: amountInBN.toFixed(),
+                exact: amountInBN.toExact()
+            });
+
+            // 获取储备金
+            let baseReserve = pool.poolInfo.baseReserve;
+            let quoteReserve = pool.poolInfo.quoteReserve;
+            let isBaseToQuote = true;
+
+            // 检查是否需要交换储备金
+            if (pool.poolKeys.baseMint.toBase58() !== tokenA.mint) {
+                [baseReserve, quoteReserve] = [quoteReserve, baseReserve];
+                isBaseToQuote = false;
+            }
 
             console.log('计算参数:', {
                 amountIn,
-                tokenA: {
-                    symbol: tokenA.symbol,
-                    decimals: tokenA.decimals,
-                    mint: tokenA.mint
-                },
-                tokenB: {
-                    symbol: tokenB.symbol,
-                    decimals: tokenB.decimals,
-                    mint: tokenB.mint
-                },
+                tokenA,
+                tokenB,
                 baseReserve: baseReserve.toString(),
                 quoteReserve: quoteReserve.toString()
             });
 
-            // 计算输入金额（使用 floor 避免舍入误差）
-            const amountInBN = new BN(
-                (Number(amountIn) * Math.pow(10, tokenA.decimals)).toFixed(0)
-            );
-
-            // 确定是否需要反转储备金
-            const isBaseToQuote = tokenA.mint === pool.poolKeys.baseMint.toBase58();
-            const [reserveIn, reserveOut] = isBaseToQuote 
-                ? [baseReserve, quoteReserve]
-                : [quoteReserve, baseReserve];
-
             // 计算输出金额
             const amountOutBN = calculateAmountOut(
                 amountInBN,
-                reserveIn,
-                reserveOut,
-                tokenA.decimals,
-                tokenB.decimals
+                baseReserve,
+                quoteReserve
             );
 
             console.log('计算结果:', {
-                amountInBN: amountInBN.toString(),
+                amountInBN: amountInBN.toFixed(),
                 amountOutBN: amountOutBN.toString(),
                 isBaseToQuote
             });
 
-            // 转换为显示金额
-            const outputAmount = Number(amountOutBN.toString()) / Math.pow(10, tokenB.decimals);
-            
-            if (isNaN(outputAmount)) {
-                console.error('输出金额计算错误');
-                setAmountOut('');
-                setExchangeRate(null);
-                setPriceImpact(null);
-                return;
-            }
-
-            setAmountOut(outputAmount.toFixed(tokenB.decimals));
-
-            // 只在有实际输出时计算价格影响
             if (!amountOutBN.isZero()) {
-                const impact = calculatePriceImpact(
+                // 格式化输出金额
+                const amountOutFormatted = (Number(amountOutBN.toString()) / Math.pow(10, tokenB.decimals)).toFixed(tokenB.decimals);
+                setAmountOut(amountOutFormatted);
+                
+                // 计算价格影响
+                const priceImpactValue = calculatePriceImpact(
                     amountInBN,
                     amountOutBN,
-                    reserveIn,
-                    reserveOut,
-                    tokenA.decimals,
-                    tokenB.decimals
+                    baseReserve,
+                    quoteReserve
                 );
-
-                setPriceImpact(impact.toFixed(2));
-
-                // 设置兑换比率
-                if (outputAmount > 0) {
-                    const rate = outputAmount / Number(amountIn);
-                    setExchangeRate(
-                        `1 ${tokenA.symbol} = ${rate.toFixed(6)} ${tokenB.symbol}`
-                    );
-                } else {
-                    setExchangeRate(null);
-                }
+                setPriceImpact(priceImpactValue);
+                
+                // 计算兑换比率
+                const inAmount = Number(amountIn);
+                const outAmount = Number(amountOutFormatted);
+                const rate = (outAmount / inAmount).toFixed(6);
+                setExchangeRate(`1 ${tokenA.symbol} = ${rate} ${tokenB.symbol}`);
             } else {
                 setPriceImpact(null);
                 setExchangeRate(null);
             }
-
         } catch (error) {
             console.error('计算兑换比率失败:', error);
             toast({
@@ -360,34 +311,32 @@ export const TokenSwap: React.FC = () => {
 
     // 计算输出金额
     const calculateAmountOut = (
-        amountIn: BN,
+        amountIn: TokenAmount,
         reserveIn: BN,
-        reserveOut: BN,
-        decimalsIn: number,
-        decimalsOut: number
+        reserveOut: BN
     ): BN => {
+        if (amountIn.raw.isZero() || reserveIn.isZero() || reserveOut.isZero()) {
+            console.log('输入金额或储备金为零');
+            return new BN(0);
+        }
+
         try {
-            // 确保所有参数都是 BN 类型
-            const _reserveIn = BN.isBN(reserveIn) ? reserveIn : new BN(reserveIn.toString());
-            const _reserveOut = BN.isBN(reserveOut) ? reserveOut : new BN(reserveOut.toString());
-
-            // 检查输入值和储备金是否为零
-            if (_reserveIn.isZero() || _reserveOut.isZero() || amountIn.isZero()) {
-                console.log('输入金额或储备金为零');
-                return new BN(0);
-            }
-
-            const amountInWithFee = amountIn.muln(997); // 0.3% fee
-            const numerator = amountInWithFee.mul(_reserveOut);
-            const denominator = _reserveIn.muln(1000).add(amountInWithFee);
-
-            // 检查分母是否为零
-            if (denominator.isZero()) {
-                console.log('计算分母为零');
-                return new BN(0);
-            }
-
-            return numerator.div(denominator);
+            // 从 TokenAmount 获取 raw BN 值
+            const amountInRaw = amountIn.raw;
+            
+            // 计算费用 0.25%
+            const amountInWithFee = amountInRaw.mul(new BN(9975));
+            
+            // 计算分子 (amountInWithFee * reserveOut)
+            const numerator = amountInWithFee.mul(reserveOut);
+            
+            // 计算分母 (reserveIn * 10000 + amountInWithFee)
+            const denominator = reserveIn.mul(new BN(10000)).add(amountInWithFee);
+            
+            // 计算输出金额 (numerator / denominator)
+            const amountOut = numerator.div(denominator);
+            
+            return amountOut;
         } catch (error) {
             console.error('计算输出金额时出错:', error);
             return new BN(0);
@@ -396,65 +345,29 @@ export const TokenSwap: React.FC = () => {
 
     // 计算价格影响
     const calculatePriceImpact = (
-        amountIn: BN,
+        amountIn: TokenAmount,
         amountOut: BN,
         reserveIn: BN,
-        reserveOut: BN,
-        decimalsIn: number,
-        decimalsOut: number
-    ): number => {
+        reserveOut: BN
+    ): string => {
         try {
-            // 确保所有参数都是 BN 类型
-            const _reserveIn = BN.isBN(reserveIn) ? reserveIn : new BN(reserveIn.toString());
-            const _reserveOut = BN.isBN(reserveOut) ? reserveOut : new BN(reserveOut.toString());
-
-            // 检查储备金是否为零
-            if (_reserveIn.isZero() || _reserveOut.isZero()) {
-                console.log('储备金为零，无法计算价格影响');
-                return 0;
-            }
-
-            // 计算中间价格（使用更大的精度来避免舍入误差）
-            const PRECISION = 18;
-            const scaleFactor = new BN(10).pow(new BN(PRECISION));
+            // 从 TokenAmount 获取 raw BN 值
+            const amountInRaw = amountIn.raw;
             
-            const midPrice = _reserveOut
-                .mul(scaleFactor)
-                .div(_reserveIn);
-
-            // 检查 midPrice 是否为零
-            if (midPrice.isZero()) {
-                console.log('中间价格为零，无法计算价格影响');
-                return 0;
+            // 计算确切报价（没有价格影响时将收到的金额）
+            const midPrice = reserveOut.mul(new BN(10000)).div(reserveIn);
+            const exactQuote = amountInRaw.mul(midPrice).div(new BN(10000));
+            
+            // 计算价格影响
+            if (exactQuote.isZero()) {
+                return '0';
             }
-
-            // 计算预期输出（使用相同的精度）
-            const exactQuote = amountIn
-                .mul(midPrice)
-                .div(scaleFactor);
-
-            // 检查 exactQuote 是否为零或小于实际输出
-            if (exactQuote.isZero() || exactQuote.lt(amountOut)) {
-                console.log('预期输出异常，无法计算价格影响');
-                return 0;
-            }
-
-            try {
-                // 计算价格影响（使用更安全的方式）
-                const impactBN = exactQuote
-                    .sub(amountOut)
-                    .mul(new BN(10000))
-                    .div(exactQuote);
-
-                const impact = impactBN.toNumber() / 100;
-                return Math.min(Math.max(0, impact), 100); // 限制在 0-100% 之间
-            } catch (error) {
-                console.error('计算最终价格影响时出错:', error);
-                return 0;
-            }
+            
+            const slippage = exactQuote.sub(amountOut).mul(new BN(10000)).div(exactQuote);
+            return (slippage.toNumber() / 100).toFixed(2);
         } catch (error) {
             console.error('计算价格影响时出错:', error);
-            return 0;
+            return '0';
         }
     };
 
@@ -468,7 +381,7 @@ export const TokenSwap: React.FC = () => {
 
     // 监听输入金额变化
     useEffect(() => {
-        calculateExchangeRate(amountIn);
+        calculateExchangeRate();
     }, [amountIn, pool]);
 
     // 监听代币选择变化
@@ -564,12 +477,204 @@ export const TokenSwap: React.FC = () => {
             return;
         }
 
-        // TODO: 实现兑换逻辑
-        toast({
-            title: "提示",
-            description: "兑换功能开发中",
-            status: "info",
+        setIsConfirmOpen(true);
+    };
+    const getWalletTokenAccount = async () => {
+        const walletTokenAccount = await connection.getTokenAccountsByOwner(publicKey, {
+            programId: TOKEN_PROGRAM_ID,
         });
+        return walletTokenAccount.value.map((i) => ({
+            pubkey: i.pubkey,
+            programId: i.account.owner,
+            accountInfo: SPL_ACCOUNT_LAYOUT.decode(i.account.data),
+        }));
+    }
+
+    // 确认兑换
+    const confirmSwap = async () => {
+        // 参数验证
+        if (!publicKey || !tokenA || !tokenB || !pool || !amountIn || !amountOut) {
+            console.error('缺少必要参数:', { publicKey, tokenA, tokenB, pool, amountIn, amountOut });
+            toast({
+                title: "错误",
+                description: "请确保所有参数都已设置",
+                status: "error",
+            });
+            return;
+        }
+
+        try {
+            console.log('开始兑换...');
+            setIsSwapping(true);
+
+            // 获取钱包代币账户
+            const tokenAccounts = await getWalletTokenAccount();
+            console.log('钱包代币账户:', tokenAccounts);
+
+            // 使用新的函数
+            const ammId = "自定义";
+            const { poolKeys, poolInfo } = await getPoolInfo(connection, { ammId });
+            
+            // 创建正确的代币对象
+            const inputToken = new Token(TOKEN_PROGRAM_ID, new PublicKey(tokenA.mint), tokenA.decimals);
+            const outputToken = new Token(TOKEN_PROGRAM_ID, new PublicKey(tokenB.mint), tokenB.decimals);
+
+            // 解析输入金额
+            const amountNumber = parseFloat(amountIn);
+            if (isNaN(amountNumber)) {
+                throw new Error('输入的金额不是有效数字');
+            }
+
+            // 正确地创建 TokenAmount 对象
+            const amountInBN = new TokenAmount(
+                inputToken,
+                amountNumber,
+                false
+            );
+
+            console.log('创建的 TokenAmount 对象:', {
+                raw: amountInBN.raw.toString(),
+                fixed: amountInBN.toFixed(),
+                exact: amountInBN.toExact()
+            });
+
+            // 确保滑点是一个整数
+            const slippageValue = Math.floor(slippage * 100);
+            console.log('滑点值 (百分比):', slippageValue / 100);
+            
+            // 创建滑点对象
+            const slippagePercent = new Percent(slippageValue, 10000);
+            console.log('滑点对象:', slippagePercent.toSignificant());
+
+            // 计算输出金额
+            const { amountOut, minAmountOut } = Liquidity.computeAmountOut({
+                poolKeys,
+                poolInfo,
+                amountIn: amountInBN,
+                currencyOut: outputToken,
+                slippage: slippagePercent
+            });
+            
+            console.log('计算的输出金额:', amountOut.toFixed());
+            console.log('计算的最小输出金额:', minAmountOut.toFixed());
+
+            // 构建兑换指令
+            console.log('构建兑换指令...');
+            const { innerTransactions } = await Liquidity.makeSwapInstructionSimple({
+                connection,
+                poolKeys,
+                userKeys: {
+                    tokenAccounts,
+                    owner: publicKey
+                },
+                amountIn: amountInBN,
+                amountOut: minAmountOut,
+                fixedSide: 'in',
+                makeTxVersion: 0
+            });
+
+            console.log('构建的 innerTransactions:', innerTransactions);
+
+            // 检查 innerTransactions 是否有效
+            if (!innerTransactions || innerTransactions.length === 0) {
+                throw new Error('没有生成任何指令');
+            }
+
+            // 处理 innerTransactions
+            for (let i = 0; i < innerTransactions.length; i++) {
+                const innerTx = innerTransactions[i];
+                
+                // 创建一个新的交易
+                const transaction = new Transaction();
+                
+                // 添加所有指令
+                for (const instruction of innerTx.instructions) {
+                    transaction.add(instruction);
+                }
+                
+                // 设置最近的区块哈希和付款人
+                const { blockhash } = await connection.getLatestBlockhash();
+                transaction.recentBlockhash = blockhash;
+                transaction.feePayer = publicKey;
+                
+                console.log(`发送第 ${i+1}/${innerTransactions.length} 个交易...`);
+                
+                // 发送交易
+                const signature = await sendTransaction(transaction, connection);
+                console.log(`交易 ${i+1} 已发送，签名:`, signature);
+                
+                // 等待确认
+                console.log(`等待交易 ${i+1} 确认...`);
+                const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+                if (confirmation.value.err) {
+                    throw new Error(`交易 ${i+1} 确认失败: ${JSON.stringify(confirmation.value.err)}`);
+                }
+                
+                console.log(`交易 ${i+1} 已确认`);
+            }
+            
+            // 处理成功
+            console.log('兑换成功，处理成功反馈...');
+            toast({
+                title: "成功",
+                description: "兑换成功",
+                status: "success",
+            });
+            
+            // 重置状态和刷新余额
+            console.log('重置状态和刷新余额...');
+            setAmountIn('');
+            setAmountOut('');
+            await refreshBalances();
+
+        } catch (err) {
+            const error = err as SwapError;
+            console.error('兑换失败:', {
+                message: error.message,
+                stack: error.stack,
+                error
+            });
+            toast({
+                title: "错误",
+                description: `兑换失败: ${error.message}`,
+                status: "error",
+            });
+        } finally {
+            console.log('结束兑换过程...');
+            setIsSwapping(false);
+            setIsConfirmOpen(false);
+        }
+    };
+
+    // 添加刷新余额的辅助函数
+    const refreshBalances = async () => {
+        if (tokenA?.isNative) {
+            const newBalance = await fetchSolBalance();
+            setTokenA({
+                ...tokenA,
+                balance: newBalance
+            });
+        } else if (tokenA) {
+            const newBalance = await fetchTokenBalance(tokenA.mint);
+            setTokenA({
+                ...tokenA,
+                balance: newBalance
+            });
+        }
+
+        if (tokenB?.isNative) {
+            const newBalance = await fetchSolBalance();
+            setTokenB({
+                ...tokenB,
+                balance: newBalance
+            });
+        } else if (tokenB) {
+            const newBalance = await fetchTokenBalance(tokenB.mint);
+            setTokenB({
+                ...tokenB,
+                balance: newBalance
+            });
+        }
     };
 
     return (
@@ -700,6 +805,23 @@ export const TokenSwap: React.FC = () => {
                     </Box>
                 )}
             </VStack>
+            {/* 兑换确认弹窗 */}
+            {tokenA && tokenB && (
+                <SwapConfirmModal
+                    isOpen={isConfirmOpen}
+                    onClose={() => setIsConfirmOpen(false)}
+                    onConfirm={confirmSwap}
+                    tokenA={tokenA}
+                    tokenB={tokenB}
+                    amountIn={amountIn}
+                    amountOut={amountOut}
+                    exchangeRate={exchangeRate || ''}
+                    priceImpact={priceImpact || '0'}
+                    minimumReceived={calculateMinimumReceived(amountOut)}
+                    slippage={slippage}
+                    isLoading={isSwapping}
+                />
+            )}
 
             {/* 代币选择弹窗 */}
             <TokenSelectModal

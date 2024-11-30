@@ -11,28 +11,39 @@ export interface TokenInfo {
     isNative?: boolean;
 }
 
+export interface LiquidityPoolKeys {
+    id: PublicKey;
+    baseMint: PublicKey;
+    quoteMint: PublicKey;
+    lpMint: PublicKey;
+    baseVault: PublicKey;
+    quoteVault: PublicKey;
+    marketId: PublicKey;
+    marketProgramId: PublicKey;
+    targetOrders: PublicKey;
+    withdrawQueue: PublicKey;
+    lpVault: PublicKey;
+    owner: PublicKey;
+    version: number;
+}
+
+export interface LiquidityPoolInfo {
+    baseDecimals: BN;
+    quoteDecimals: BN;
+    lpDecimals: BN;
+    baseReserve: BN;
+    quoteReserve: BN;
+    lpSupply: BN;
+    startTime: BN;
+}
+
 export interface LiquidityPoolData {
-    poolKeys: {
-        id: PublicKey;
-        baseMint: PublicKey;
-        quoteMint: PublicKey;
-        lpMint: PublicKey;
-        baseVault: PublicKey;
-        quoteVault: PublicKey;
-        marketId: PublicKey;
-        marketProgramId: PublicKey;
-        targetOrders: PublicKey;
-        withdrawQueue: PublicKey;
-        lpVault: PublicKey;
-        owner: PublicKey;
-    };
-    poolInfo: {
-        baseDecimals: BN;
-        quoteDecimals: BN;
-        lpDecimals: BN;
-        baseReserve: BN;
-        quoteReserve: BN;
-        lpSupply: BN;
-        startTime: BN;
-    };
-} 
+    version: number;
+    poolKeys: LiquidityPoolKeys;
+    poolInfo: LiquidityPoolInfo;
+}
+
+export interface SwapError extends Error {
+    code?: string;
+    message: string;
+}
