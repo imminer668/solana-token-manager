@@ -83,10 +83,13 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
                 // 获取 URI 中的图标信息
                 let icon: string | undefined;
                 try {
-                    // 如果 URI 以 IPFS 开头，则需要转换为 HTTP 地址
-                    const uri = metadata.data.uri.startsWith('ipfs://') 
-                        ? `https://ipfs.io/ipfs/${metadata.data.uri.slice(7)}`
-                        : metadata.data.uri;
+                    let uri = metadata.data.uri;
+                    if (uri.startsWith('ipfs://')) {
+                        uri = `https://ipfs.io/ipfs/${uri.slice(7)}`;
+                    } else if (!uri.startsWith('http://') && !uri.startsWith('https://')) {
+                        //console.error('Invalid URI format');
+                        return;
+                    }
                     const response = await fetch(uri);
                     const json = await response.json();
                     icon = json.image;
