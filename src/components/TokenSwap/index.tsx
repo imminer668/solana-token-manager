@@ -28,9 +28,18 @@ import {
     SliderThumb,
     IconButton,
     Tooltip,
+    Flex,
+    Divider,
+    Card,
+    CardBody,
+    Badge,
+    useColorModeValue,
+    Center,
+    Spinner,
 } from '@chakra-ui/react';
-import { FaExchangeAlt } from 'react-icons/fa';
+import { FaExchangeAlt, FaChevronDown, FaInfoCircle, FaCog } from 'react-icons/fa';
 import { FiSettings } from 'react-icons/fi';
+import { RiArrowUpDownLine } from 'react-icons/ri';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useState, useEffect } from 'react';
 import { TokenInput } from './TokenInput';
@@ -121,6 +130,14 @@ export const TokenSwap: React.FC = () => {
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isSwapping, setIsSwapping] = useState(false);
 
+    // 提前定义所有的颜色变量，而不是在JSX中调用hooks
+    const bgColor = useColorModeValue('white', 'gray.800');
+    const cardBorderColor = useColorModeValue('gray.200', 'gray.700');
+    const accentColor = useColorModeValue('blue.500', 'blue.300');
+    const textColor = useColorModeValue('gray.800', 'white');
+    const secondaryTextColor = useColorModeValue('gray.600', 'gray.400');
+    const detailsBgColor = useColorModeValue('gray.50', 'gray.700');
+    const buttonHoverBgColor = useColorModeValue('gray.100', 'gray.600');
 
     // SOL 代币配置
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -225,12 +242,12 @@ export const TokenSwap: React.FC = () => {
                 console.error('输入的金额不是有效数字');
                 return;
             }
-
+            
             // 创建 TokenAmount 对象
             const amountInBN = new TokenAmount(
                 inputToken,
                 amountNumber,
-                false
+                false // 这里应该是false，表示不是raw值
             );
             
             console.log('创建的 TokenAmount 对象:', {
@@ -238,62 +255,119 @@ export const TokenSwap: React.FC = () => {
                 fixed: amountInBN.toFixed(),
                 exact: amountInBN.toExact()
             });
-
-            // 获取储备金
-            let baseReserve = pool.poolInfo.baseReserve;
-            let quoteReserve = pool.poolInfo.quoteReserve;
-            let isBaseToQuote = true;
-
-            // 检查是否需要交换储备金
-            if (pool.poolKeys.baseMint.toBase58() !== tokenA.mint) {
-                [baseReserve, quoteReserve] = [quoteReserve, baseReserve];
-                isBaseToQuote = false;
-            }
-
-            console.log('计算参数:', {
-                amountIn,
-                tokenA,
-                tokenB,
-                baseReserve: baseReserve.toString(),
-                quoteReserve: quoteReserve.toString()
-            });
-
-            // 计算输出金额
-            const amountOutBN = calculateAmountOut(
-                amountInBN,
-                baseReserve,
-                quoteReserve
-            );
-
-            console.log('计算结果:', {
-                amountInBN: amountInBN.toFixed(),
-                amountOutBN: amountOutBN.toString(),
+            
+            // 池子信息
+            const baseReserve = pool.poolInfo.baseReserve;
+            const quoteReserve = pool.poolInfo.quoteReserve;
+            
+            // 确定方向
+            const isBaseToQuote = tokenA.mint === pool.poolKeys.baseMint.toString();
+            
+            // 简单日志输出参数
+            console.log('Swap参数:', {
+                amountIn: amountIn,
+                tokenAMint: tokenA.mint,
+                tokenBMint: tokenB.mint,
+                baseReserveStr: baseReserve.toString(),
+                quoteReserveStr: quoteReserve.toString(),
                 isBaseToQuote
             });
-
-            if (!amountOutBN.isZero()) {
-                // 格式化输出金额
-                const amountOutFormatted = (Number(amountOutBN.toString()) / Math.pow(10, tokenB.decimals)).toFixed(tokenB.decimals);
-                setAmountOut(amountOutFormatted);
-                
-                // 计算价格影响
-                const priceImpactValue = calculatePriceImpact(
-                    amountInBN,
-                    amountOutBN,
-                    baseReserve,
-                    quoteReserve
-                );
-                setPriceImpact(priceImpactValue);
-                
-                // 计算兑换比率
-                const inAmount = Number(amountIn);
-                const outAmount = Number(amountOutFormatted);
-                const rate = (outAmount / inAmount).toFixed(6);
-                setExchangeRate(`1 ${tokenA.symbol} = ${rate} ${tokenB.symbol}`);
+            
+            // 使用SDK计算输出金额
+            let amountOutBN;
+            if (isBaseToQuote) {
+                amountOutBN = Liquidity.computeAmountOut({
+                    amountIn: amountInBN,
+                    currencyIn: inputToken,
+                    currencyOut: new Token(TOKEN_PROGRAM_ID, new PublicKey(tokenB.mint), tokenB.decimals),
+                    poolInfo: pool.poolInfo,
+                    poolKeys: pool.poolKeys,
+                    slippage: new Percent(0)
+                }).amountOut;
             } else {
-                setPriceImpact(null);
+                amountOutBN = Liquidity.computeAmountOut({
+                    amountIn: amountInBN,
+                    currencyIn: inputToken,
+                    currencyOut: new Token(TOKEN_PROGRAM_ID, new PublicKey(tokenB.mint), tokenB.decimals),
+                    poolInfo: pool.poolInfo,
+                    poolKeys: pool.poolKeys,
+                    slippage: new Percent(0)
+                }).amountOut;
+            }
+            
+            // 输出计算结果日志
+            console.log('计算输出结果:', {
+                amountOut: amountOutBN.toExact(),
+                amountOutRaw: amountOutBN.raw.toString()
+            });
+            
+            // 更新输出金额状态
+            const amountOutFormatted = amountOutBN.toFixed(tokenB.decimals);
+            setAmountOut(amountOutFormatted);
+            
+            // 计算价格影响
+            const priceImpactValue = calculatePriceImpact(
+                amountInBN,
+                amountOutBN,
+                isBaseToQuote ? baseReserve : quoteReserve,
+                isBaseToQuote ? quoteReserve : baseReserve
+            );
+            setPriceImpact(priceImpactValue);
+            
+            // 更新兑换比率
+            try {
+                if (amountInBN && amountOutBN && !amountInBN.raw.isZero()) {
+                    // 使用BN库进行精确计算
+                    const inAmountRaw = new BN(amountInBN.raw.toString());
+                    const outAmountRaw = new BN(amountOutBN.raw.toString());
+                    
+                    // 考虑代币的小数位数
+                    const inDecimals = tokenA.decimals;
+                    const outDecimals = tokenB.decimals;
+                    
+                    console.log('兑换比率计算:', {
+                        inAmountRaw: inAmountRaw.toString(),
+                        outAmountRaw: outAmountRaw.toString(),
+                        inDecimals,
+                        outDecimals
+                    });
+                    
+                    // 调整小数位，确保准确计算比率
+                    let adjustedRate;
+                    
+                    // 计算1个代币A的输出量
+                    // 首先，计算1个完整单位代币A的原始数量
+                    const oneTokenA = new BN(10).pow(new BN(inDecimals));
+                    
+                    // 然后，计算相应的输出数量：(outAmount / inAmount) * oneTokenA
+                    if (!inAmountRaw.isZero()) {
+                        // 使用乘法后除法避免精度损失
+                        const scaledOutput = outAmountRaw.mul(oneTokenA).div(inAmountRaw);
+                        
+                        // 转换为人类可读的格式，考虑B代币的小数位
+                        adjustedRate = scaledOutput.toNumber() / Math.pow(10, outDecimals);
+                        
+                        console.log('调整后的比率:', {
+                            oneTokenA: oneTokenA.toString(),
+                            scaledOutput: scaledOutput.toString(),
+                            adjustedRate
+                        });
+                    }
+                    
+                    if (adjustedRate !== undefined) {
+                        const formattedRate = adjustedRate.toFixed(6);
+                        setExchangeRate(`1 ${tokenA.symbol} = ${formattedRate} ${tokenB.symbol}`);
+                    } else {
+                        setExchangeRate(null);
+                    }
+                } else {
+                    setExchangeRate(null);
+                }
+            } catch (error) {
+                console.error('计算兑换比率时出错:', error);
                 setExchangeRate(null);
             }
+            
         } catch (error) {
             console.error('计算兑换比率失败:', error);
             toast({
@@ -301,9 +375,9 @@ export const TokenSwap: React.FC = () => {
                 description: "计算兑换比率失败",
                 status: "error",
             });
-            setExchangeRate(null);
-            setPriceImpact(null);
             setAmountOut('');
+            setPriceImpact(null);
+            setExchangeRate(null);
         } finally {
             setIsLoadingRate(false);
         }
@@ -346,27 +420,97 @@ export const TokenSwap: React.FC = () => {
     // 计算价格影响
     const calculatePriceImpact = (
         amountIn: TokenAmount,
-        amountOut: BN,
-        reserveIn: BN,
-        reserveOut: BN
+        amountOut: TokenAmount,
+        baseReserve: BN,
+        quoteReserve: BN
     ): string => {
         try {
-            // 从 TokenAmount 获取 raw BN 值
-            const amountInRaw = amountIn.raw;
+            // 从TokenAmount获取原始值
+            const amountInRaw = new BN(amountIn.raw.toString());
+            const amountOutRaw = new BN(amountOut.raw.toString());
             
-            // 计算确切报价（没有价格影响时将收到的金额）
-            const midPrice = reserveOut.mul(new BN(10000)).div(reserveIn);
-            const exactQuote = amountInRaw.mul(midPrice).div(new BN(10000));
+            // 简单日志输出
+            console.log('价格影响计算参数:', {
+                amountInRaw: amountInRaw.toString(),
+                amountOutRaw: amountOutRaw.toString(),
+                baseReserve: baseReserve.toString(),
+                quoteReserve: quoteReserve.toString()
+            });
             
-            // 计算价格影响
-            if (exactQuote.isZero()) {
-                return '0';
+            // 计算无滑点情况下的理论输出
+            // 使用当前池子价格计算
+            const spotPrice = quoteReserve.mul(new BN(10000)).div(baseReserve);
+            const theoreticalOut = amountInRaw.mul(spotPrice).div(new BN(10000));
+            
+            console.log('理论输出:', {
+                spotPrice: spotPrice.toString(),
+                theoreticalOut: theoreticalOut.toString()
+            });
+            
+            // 如果理论输出为0，返回0%
+            if (theoreticalOut.isZero()) {
+                return '0.00';
             }
             
-            const slippage = exactQuote.sub(amountOut).mul(new BN(10000)).div(exactQuote);
-            return (slippage.toNumber() / 100).toFixed(2);
+            // 计算差额
+            // 理论输出 - 实际输出
+            let diff: BN;
+            if (theoreticalOut.gt(amountOutRaw)) {
+                // 正常情况：理论输出 > 实际输出
+                diff = theoreticalOut.sub(amountOutRaw);
+                // 价格影响 = (理论输出 - 实际输出) / 理论输出 * 100
+                const impact = diff.mul(new BN(10000)).div(theoreticalOut);
+                const impactPercent = (impact.toNumber() / 100).toFixed(2);
+                
+                console.log('价格影响计算结果:', {
+                    diff: diff.toString(),
+                    impact: impact.toString(),
+                    impactPercent
+                });
+                
+                return impactPercent;
+            } else {
+                // 有时由于舍入误差，实际输出可能略大于理论输出
+                console.log('理论输出小于实际输出，可能是舍入误差');
+                return '0.00';
+            }
         } catch (error) {
             console.error('计算价格影响时出错:', error);
+            return '0.00';
+        }
+    };
+
+    // 修改价格影响计算逻辑
+    const calculatePriceImpactAlternative = (
+        inputAmount: BN,
+        outputAmount: BN,
+        inputReserve: BN,
+        outputReserve: BN
+    ): string => {
+        try {
+            // 计算在无滑点情况下的交易价格
+            const spotPrice = outputReserve.mul(new BN(10000)).div(inputReserve);
+            
+            // 计算实际交易价格
+            const executionPrice = outputAmount.mul(new BN(10000)).div(inputAmount);
+            
+            // 计算价格影响
+            const priceRatio = spotPrice.mul(new BN(10000)).div(executionPrice);
+            const priceImpact = new BN(10000).sub(priceRatio);
+            
+            const impactPercent = (priceImpact.toNumber() / 100).toFixed(2);
+            
+            console.log('替代价格影响计算:', {
+                spotPrice: spotPrice.toString(),
+                executionPrice: executionPrice.toString(),
+                priceRatio: priceRatio.toString(),
+                priceImpact: priceImpact.toString(),
+                impactPercent
+            });
+            
+            return impactPercent;
+        } catch (error) {
+            console.error('计算替代价格影响时出错:', error);
             return '0';
         }
     };
@@ -678,163 +822,304 @@ export const TokenSwap: React.FC = () => {
     };
 
     return (
-        <Box p={6} maxW="container.sm" mx="auto">
-            <VStack spacing={6}>
-                <HStack w="full" justify="space-between">
-                    <Text fontSize="2xl" fontWeight="bold">
-                        代币兑换
-                    </Text>
-                    <Popover
-                        isOpen={isSettingsOpen}
-                        onClose={() => setIsSettingsOpen(false)}
-                    >
-                        <PopoverTrigger>
-                            <IconButton
-                                aria-label="设置"
-                                icon={<FiSettings />}
-                                variant="ghost"
-                                onClick={() => setIsSettingsOpen(true)}
-                            />
-                        </PopoverTrigger>
-                        <PopoverContent>
-                            <PopoverArrow />
-                            <PopoverCloseButton />
-                            <PopoverHeader>交易设置</PopoverHeader>
-                            <PopoverBody>
-                                <VStack spacing={4} align="stretch">
-                                    <Text>滑点容忍度 ({slippage}%)</Text>
-                                    <Slider
-                                        value={slippage}
-                                        min={0.1}
-                                        max={5}
-                                        step={0.1}
-                                        onChange={(value) => setSlippage(value)}
-                                    >
-                                        <SliderTrack>
-                                            <SliderFilledTrack />
-                                        </SliderTrack>
-                                        <SliderThumb />
-                                    </Slider>
-                                    <HStack spacing={2}>
-                                        {[0.5, 1, 3].map((value) => (
-                                            <Button
-                                                key={value}
-                                                size="sm"
-                                                variant={slippage === value ? "solid" : "outline"}
-                                                onClick={() => setSlippage(value)}
+        <Box
+            maxW="450px"
+            mx="auto"
+            mt={8}
+            p={5}
+        >
+            <Card 
+                bg={bgColor} 
+                boxShadow="lg" 
+                rounded="xl" 
+                borderWidth="1px"
+                borderColor={cardBorderColor}
+            >
+                <CardBody p={6}>
+                    {/* 标题和设置 */}
+                    <Flex justifyContent="space-between" alignItems="center" mb={6}>
+                        <Text fontSize="2xl" fontWeight="bold" color={textColor}>
+                            代币兑换
+                        </Text>
+                        <Popover placement="bottom-end">
+                            <PopoverTrigger>
+                                <IconButton
+                                    aria-label="设置"
+                                    icon={<FaCog />}
+                                    size="md"
+                                    variant="ghost"
+                                    color={secondaryTextColor}
+                                    _hover={{ color: accentColor }}
+                                />
+                            </PopoverTrigger>
+                            <PopoverContent p={4} width="300px">
+                                <PopoverArrow />
+                                <PopoverCloseButton />
+                                <PopoverHeader fontWeight="bold">交易设置</PopoverHeader>
+                                <PopoverBody>
+                                    <VStack spacing={4} align="stretch">
+                                        <Box>
+                                            <Flex justify="space-between" mb={2}>
+                                                <Text fontWeight="medium">滑点容忍度</Text>
+                                                <Text>{slippage}%</Text>
+                                            </Flex>
+                                            <Slider
+                                                aria-label="滑点设置"
+                                                value={slippage}
+                                                min={0.1}
+                                                max={5}
+                                                step={0.1}
+                                                onChange={setSlippage}
+                                                colorScheme="blue"
                                             >
-                                                {value}%
+                                                <SliderTrack>
+                                                    <SliderFilledTrack />
+                                                </SliderTrack>
+                                                <SliderThumb boxSize={6} />
+                                            </Slider>
+                                        </Box>
+                                        
+                                        <HStack spacing={2} justify="space-between">
+                                            <Button 
+                                                size="sm" 
+                                                onClick={() => setSlippage(0.1)}
+                                                colorScheme={slippage === 0.1 ? "blue" : "gray"}
+                                                variant={slippage === 0.1 ? "solid" : "outline"}
+                                            >
+                                                0.1%
                                             </Button>
-                                        ))}
+                                            <Button 
+                                                size="sm"
+                                                onClick={() => setSlippage(0.5)}
+                                                colorScheme={slippage === 0.5 ? "blue" : "gray"}
+                                                variant={slippage === 0.5 ? "solid" : "outline"}
+                                            >
+                                                0.5%
+                                            </Button>
+                                            <Button 
+                                                size="sm"
+                                                onClick={() => setSlippage(1.0)}
+                                                colorScheme={slippage === 1.0 ? "blue" : "gray"}
+                                                variant={slippage === 1.0 ? "solid" : "outline"}
+                                            >
+                                                1.0%
+                                            </Button>
+                                            <Button 
+                                                size="sm"
+                                                onClick={() => setSlippage(3.0)}
+                                                colorScheme={slippage === 3.0 ? "blue" : "gray"}
+                                                variant={slippage === 3.0 ? "solid" : "outline"}
+                                            >
+                                                3.0%
+                                            </Button>
+                                        </HStack>
+                                    </VStack>
+                                </PopoverBody>
+                            </PopoverContent>
+                        </Popover>
+                    </Flex>
+
+                    {/* 支付代币输入 */}
+                    <Box 
+                        mb={2}
+                        p={4}
+                        borderWidth="1px"
+                        borderColor={cardBorderColor}
+                        borderRadius="xl"
+                        bg={detailsBgColor}
+                    >
+                        <Flex justifyContent="space-between" mb={1}>
+                            <Text fontSize="sm" color={secondaryTextColor}>支付数量</Text>
+                            <Text fontSize="sm" color={secondaryTextColor}>
+                                余额: {tokenA ? tokenA.balance?.toFixed(4) || '0' : '0'}
+                            </Text>
+                        </Flex>
+                        <Flex alignItems="center">
+                            <Input
+                                variant="unstyled"
+                                placeholder="0.0"
+                                value={amountIn}
+                                onChange={(e) => handleAmountInChange(e.target.value)}
+                                fontSize="2xl"
+                                fontWeight="bold"
+                                flex="1"
+                                pr={2}
+                            />
+                            <Button
+                                onClick={() => setIsSelectingTokenA(true)}
+                                size="lg"
+                                variant="ghost"
+                                rightIcon={<FaChevronDown />}
+                                px={4}
+                                borderRadius="xl"
+                                fontWeight="bold"
+                                _hover={{ bg: buttonHoverBgColor }}
+                            >
+                                {tokenA ? (
+                                    <HStack>
+                                        {tokenA.icon && (
+                                            <Box boxSize="24px" borderRadius="full" overflow="hidden">
+                                                <img src={tokenA.icon} alt={tokenA.symbol} />
+                                            </Box>
+                                        )}
+                                        <Text>{tokenA.symbol}</Text>
                                     </HStack>
-                                </VStack>
-                            </PopoverBody>
-                        </PopoverContent>
-                    </Popover>
-                </HStack>
-
-                <TokenInput
-                    value={amountIn}
-                    onChange={handleAmountInChange}
-                    token={tokenA}
-                    onTokenSelect={handleTokenASelect}
-                    balance={tokenA?.balance}
-                />
-
-                <Button 
-                    onClick={handleSwitch}
-                    size="sm"
-                    variant="ghost"
-                >
-                    <Icon as={FaExchangeAlt} />
-                </Button>
-
-                <TokenInput
-                    value={amountOut}
-                    token={tokenB}
-                    onTokenSelect={handleTokenBSelect}
-                    balance={tokenB?.balance}
-                    isOutput
-                />
-
-                <Button
-                    colorScheme="blue"
-                    onClick={handleSwap}
-                    isLoading={isLoading}
-                    loadingText="交易中..."
-                    w="full"
-                    isDisabled={!tokenA || !tokenB || !amountIn}
-                >
-                    {!tokenA || !tokenB 
-                        ? "请选择代币" 
-                        : !amountIn 
-                            ? "请输入数量"
-                            : "确认兑换"}
-                </Button>
-
-                {/* 显示兑换详情 */}
-                {(isLoadingRate || exchangeRate) && (
-                    <Box w="full" px={4}>
-                        {isLoadingRate ? (
-                            <VStack align="stretch" spacing={2}>
-                                <SkeletonText noOfLines={3} />
-                            </VStack>
-                        ) : (
-                            <VStack align="stretch" spacing={1}>
-                                <Text fontSize="sm" color="gray.500">
-                                    {exchangeRate}
-                                </Text>
-                                {priceImpact && (
-                                    <Text 
-                                        fontSize="sm" 
-                                        color={Number(priceImpact) > 5 ? "red.500" : "gray.500"}
-                                    >
-                                        价格影响: {priceImpact}%
-                                    </Text>
+                                ) : (
+                                    '选择代币'
                                 )}
-                                {amountOut && (
-                                    <Text fontSize="sm" color="gray.500">
-                                        最小获得: {calculateMinimumReceived(amountOut)} {tokenB?.symbol}
-                                    </Text>
-                                )}
-                                <Text fontSize="sm" color="gray.500">
-                                    滑点设置: {slippage}%
-                                </Text>
-                            </VStack>
-                        )}
+                            </Button>
+                        </Flex>
                     </Box>
-                )}
-            </VStack>
-            {/* 兑换确认弹窗 */}
-            {tokenA && tokenB && (
-                <SwapConfirmModal
-                    isOpen={isConfirmOpen}
-                    onClose={() => setIsConfirmOpen(false)}
-                    onConfirm={confirmSwap}
-                    tokenA={tokenA}
-                    tokenB={tokenB}
-                    amountIn={amountIn}
-                    amountOut={amountOut}
-                    exchangeRate={exchangeRate || ''}
-                    priceImpact={priceImpact || '0'}
-                    minimumReceived={calculateMinimumReceived(amountOut)}
-                    slippage={slippage}
-                    isLoading={isSwapping}
-                />
-            )}
+                    
+                    {/* 交换方向按钮 */}
+                    <Center my={-3} zIndex={2} position="relative">
+                        <IconButton
+                            aria-label="交换代币"
+                            icon={<RiArrowUpDownLine />}
+                            size="md"
+                            isRound
+                            colorScheme="blue"
+                            onClick={handleSwitch}
+                        />
+                    </Center>
+
+                    {/* 接收代币输入 */}
+                    <Box 
+                        mt={2}
+                        mb={6}
+                        p={4}
+                        borderWidth="1px"
+                        borderColor={cardBorderColor}
+                        borderRadius="xl"
+                        bg={detailsBgColor}
+                    >
+                        <Flex justifyContent="space-between" mb={1}>
+                            <Text fontSize="sm" color={secondaryTextColor}>获得数量</Text>
+                            <Text fontSize="sm" color={secondaryTextColor}>
+                                余额: {tokenB ? tokenB.balance?.toFixed(4) || '0' : '0'}
+                            </Text>
+                        </Flex>
+                        <Flex alignItems="center">
+                            <Input
+                                variant="unstyled"
+                                placeholder="0.0"
+                                value={amountOut}
+                                readOnly
+                                fontSize="2xl"
+                                fontWeight="bold"
+                                flex="1"
+                                pr={2}
+                            />
+                            <Button
+                                onClick={() => setIsSelectingTokenB(true)}
+                                size="lg"
+                                variant="ghost"
+                                rightIcon={<FaChevronDown />}
+                                px={4}
+                                borderRadius="xl"
+                                fontWeight="bold"
+                                _hover={{ bg: buttonHoverBgColor }}
+                            >
+                                {tokenB ? (
+                                    <HStack>
+                                        {tokenB.icon && (
+                                            <Box boxSize="24px" borderRadius="full" overflow="hidden">
+                                                <img src={tokenB.icon} alt={tokenB.symbol} />
+                                            </Box>
+                                        )}
+                                        <Text>{tokenB.symbol}</Text>
+                                    </HStack>
+                                ) : (
+                                    '选择代币'
+                                )}
+                            </Button>
+                        </Flex>
+                    </Box>
+
+                    {/* 交易详情 */}
+                    {exchangeRate && (
+                        <Box
+                            p={4}
+                            mb={6}
+                            borderWidth="1px"
+                            borderColor={cardBorderColor}
+                            borderRadius="xl"
+                            bg={detailsBgColor}
+                        >
+                            <Flex justifyContent="space-between" mb={2}>
+                                <Text fontSize="sm" color={secondaryTextColor}>兑换比率</Text>
+                                <Text fontSize="sm" fontWeight="medium">{exchangeRate}</Text>
+                            </Flex>
+                            <Flex justifyContent="space-between">
+                                <HStack>
+                                    <Text fontSize="sm" color={secondaryTextColor}>价格影响</Text>
+                                    <Tooltip label="交易对市场价格的影响百分比">
+                                        <Box as="span" color={secondaryTextColor}>
+                                            <FaInfoCircle size="0.75em" />
+                                        </Box>
+                                    </Tooltip>
+                                </HStack>
+                                <Badge 
+                                    colorScheme={
+                                        priceImpact && parseFloat(priceImpact) > 5 
+                                            ? "red" 
+                                            : priceImpact && parseFloat(priceImpact) > 1 
+                                                ? "yellow" 
+                                                : "green"
+                                    }
+                                >
+                                    {priceImpact ? `${priceImpact}%` : '0.00%'}
+                                </Badge>
+                            </Flex>
+                        </Box>
+                    )}
+
+                    {/* 主按钮 */}
+                    <Button
+                        onClick={handleSwap}
+                        isLoading={isSwapping}
+                        loadingText="处理中"
+                        colorScheme="blue"
+                        size="lg"
+                        w="full"
+                        borderRadius="xl"
+                        py={6}
+                        isDisabled={!publicKey || !tokenA || !tokenB || !amountIn || !amountOut || isSwapping}
+                    >
+                        {!publicKey 
+                            ? '请连接钱包' 
+                            : !tokenA || !tokenB 
+                                ? '请选择代币' 
+                                : !amountIn || !amountOut 
+                                    ? '请输入金额' 
+                                    : '确认兑换'}
+                    </Button>
+                </CardBody>
+            </Card>
 
             {/* 代币选择弹窗 */}
             <TokenSelectModal
-                isOpen={isSelectingTokenA}
-                onClose={() => setIsSelectingTokenA(false)}
+                isOpen={isSelectingTokenA || isSelectingTokenB}
+                onClose={() => {
+                    setIsSelectingTokenA(false);
+                    setIsSelectingTokenB(false);
+                }}
                 onSelect={handleTokenSelect}
-                excludeToken={tokenB?.mint}
+                excludeToken={isSelectingTokenA ? tokenB : tokenA}
             />
-            <TokenSelectModal
-                isOpen={isSelectingTokenB}
-                onClose={() => setIsSelectingTokenB(false)}
-                onSelect={handleTokenSelect}
-                excludeToken={tokenA?.mint}
+
+            <SwapConfirmModal
+                isOpen={isConfirmOpen}
+                onClose={() => setIsConfirmOpen(false)}
+                tokenA={tokenA}
+                tokenB={tokenB}
+                amountIn={amountIn}
+                amountOut={amountOut}
+                exchangeRate={exchangeRate}
+                priceImpact={priceImpact}
+                slippage={slippage}
+                onConfirm={confirmSwap}
+                isSwapping={isSwapping}
             />
         </Box>
     );
