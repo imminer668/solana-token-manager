@@ -1,21 +1,27 @@
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Modal,
     ModalOverlay,
     ModalContent,
     ModalHeader,
-    ModalBody,
     ModalCloseButton,
+    ModalBody,
     Input,
     VStack,
     HStack,
     Text,
     Image,
-    Button,
     Box,
-    useToast,
+    Flex,
+    InputGroup,
+    InputLeftElement,
+    Divider,
+    useColorModeValue,
+    Spinner,
+    Center
 } from '@chakra-ui/react';
+import { FaSearch } from 'react-icons/fa';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { useState, useEffect } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { 
     TOKEN_PROGRAM_ID,
@@ -43,10 +49,10 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
 }) => {
     const { connection } = useConnection();
     const { publicKey } = useWallet();
-    const toast = useToast();
-    const [searchText, setSearchText] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
     const [tokens, setTokens] = useState<TokenInfo[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [filteredTokens, setFilteredTokens] = useState<TokenInfo[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
 
     // SOL 代币配置
     const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -114,8 +120,8 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
         if (!publicKey) return;
 
         try {
-            setLoading(true);
-
+            setIsLoading(true);
+            
             // 获取 SOL 余额
             const solBalance = await connection.getBalance(publicKey);
 
@@ -161,13 +167,8 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
             ]);
         } catch (error) {
             console.error('获取代币列表失败:', error);
-            toast({
-                title: "错误",
-                description: "获取代币列表失败",
-                status: "error",
-            });
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
     };
 
@@ -177,72 +178,177 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
         }
     }, [isOpen, publicKey]);
 
-    // 过滤代币
-    const filteredTokens = tokens.filter(token => 
-        token.symbol.toLowerCase().includes(searchText.toLowerCase()) ||
-        token.mint.toLowerCase().includes(searchText.toLowerCase())
-    );
+    // 搜索过滤逻辑
+    useEffect(() => {
+        if (!Array.isArray(tokens)) {
+            setFilteredTokens([]);
+            return;
+        }
+
+        if (!searchTerm) {
+            setFilteredTokens(
+                excludeToken
+                    ? tokens.filter(t => t.mint !== excludeToken)
+                    : tokens
+            );
+            return;
+        }
+
+        const filtered = tokens.filter(token => {
+            const searchable = `${token.symbol} ${token.name} ${token.mint}`.toLowerCase();
+            return searchable.includes(searchTerm.toLowerCase());
+        });
+
+        setFilteredTokens(
+            excludeToken
+                ? filtered.filter(t => t.mint !== excludeToken)
+                : filtered
+        );
+    }, [tokens, searchTerm, excludeToken]);
+
+    // 重置搜索
+    useEffect(() => {
+        if (isOpen) {
+            setSearchTerm('');
+        }
+    }, [isOpen]);
+
+    // 颜色模式变量
+    const bgColor = useColorModeValue('white', 'gray.800');
+    const borderColor = useColorModeValue('gray.200', 'gray.700');
+    const searchBgColor = useColorModeValue('gray.50', 'gray.700');
+    const hoverBgColor = useColorModeValue('gray.50', 'gray.700');
+    const textColor = useColorModeValue('gray.800', 'white');
+    const secondaryTextColor = useColorModeValue('gray.600', 'gray.400');
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} isCentered>
-            <ModalOverlay />
-            <ModalContent>
-                <ModalHeader>选择代币</ModalHeader>
-                <ModalCloseButton />
-                <ModalBody pb={6}>
-                    <VStack spacing={4}>
+        <Modal isOpen={isOpen} onClose={onClose} isCentered size="md">
+            <ModalOverlay backdropFilter="blur(3px)" />
+            <ModalContent 
+                bg={bgColor} 
+                borderRadius="xl" 
+                boxShadow="xl"
+                overflow="hidden"
+                maxH="85vh"
+            >
+                <ModalHeader 
+                    borderBottomWidth="1px" 
+                    borderColor={borderColor}
+                    py={4}
+                >
+                    <Text fontSize="xl" fontWeight="bold" color={textColor}>
+                        选择代币
+                    </Text>
+                </ModalHeader>
+                <ModalCloseButton size="lg" top={3} right={3} />
+                
+                {/* 搜索框区域 */}
+                <Box p={4} bg={searchBgColor}>
+                    <InputGroup>
+                        <InputLeftElement pointerEvents="none" color={secondaryTextColor}>
+                            <FaSearch />
+                        </InputLeftElement>
                         <Input
                             placeholder="搜索代币名称、符号或地址"
-                            value={searchText}
-                            onChange={(e) => setSearchText(e.target.value)}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            borderRadius="lg"
+                            fontSize="md"
+                            _focus={{
+                                borderColor: 'blue.400',
+                                boxShadow: '0 0 0 1px var(--chakra-colors-blue-400)'
+                            }}
                         />
-
-                        <VStack spacing={2} align="stretch" maxH="300px" overflowY="auto">
-                            {loading ? (
-                                <Text textAlign="center" color="gray.500">
-                                    加载中...
+                    </InputGroup>
+                </Box>
+                
+                {/* 代币列表 */}
+                <ModalBody p={0} maxH="400px" overflowY="auto">
+                    {isLoading ? (
+                        <Center py={10}>
+                            <VStack spacing={4}>
+                                <Spinner 
+                                    size="xl" 
+                                    thickness="4px"
+                                    speed="0.65s"
+                                    color="blue.500"
+                                />
+                                <Text color={secondaryTextColor}>
+                                    正在加载代币...
                                 </Text>
-                            ) : filteredTokens.length === 0 ? (
-                                <Text textAlign="center" color="gray.500">
-                                    未找到代币
-                                </Text>
-                            ) : (
-                                filteredTokens.map((token) => (
-                                    <Button
-                                        key={token.mint}
-                                        variant="ghost"
-                                        onClick={() => {
-                                            onSelect(token);
-                                            onClose();
-                                        }}
-                                        py={6}
-                                    >
-                                        <HStack w="full" justify="space-between">
-                                            <HStack>
-                                                {token.icon ? (
-                                                    <Image
-                                                        src={token.icon}
-                                                        boxSize="24px"
-                                                        borderRadius="full"
-                                                        fallback={<Box boxSize="24px" bg="gray.200" borderRadius="full" />}
-                                                    />
-                                                ) : (
-                                                    <Box boxSize="24px" bg="gray.200" borderRadius="full" />
-                                                )}
-                                                <VStack align="start" spacing={0}>
-                                                    <Text>{token.symbol}</Text>
-                                                    <Text fontSize="xs" color="gray.500">
-                                                        {token.mint.slice(0, 8)}...
-                                                    </Text>
-                                                </VStack>
-                                            </HStack>
-                                            <Text>{token.balance}</Text>
-                                        </HStack>
-                                    </Button>
-                                ))
-                            )}
+                            </VStack>
+                        </Center>
+                    ) : filteredTokens.length > 0 ? (
+                        <VStack spacing={0} align="stretch" divider={<Divider />}>
+                            {filteredTokens.map((token) => (
+                                <Flex
+                                    key={token.mint}
+                                    py={3}
+                                    px={4}
+                                    align="center"
+                                    justify="space-between"
+                                    cursor="pointer"
+                                    _hover={{ bg: hoverBgColor }}
+                                    onClick={() => onSelect(token)}
+                                    transition="background 0.2s"
+                                >
+                                    <HStack spacing={4}>
+                                        {token.icon ? (
+                                            <Box 
+                                                boxSize="40px" 
+                                                borderRadius="full" 
+                                                overflow="hidden"
+                                                border="1px"
+                                                borderColor={borderColor}
+                                            >
+                                                <Image 
+                                                    src={token.icon} 
+                                                    alt={token.symbol}
+                                                    fallbackSrc="https://via.placeholder.com/40"
+                                                    boxSize="100%"
+                                                    objectFit="cover"
+                                                />
+                                            </Box>
+                                        ) : (
+                                            <Flex
+                                                boxSize="40px"
+                                                borderRadius="full"
+                                                bg={hoverBgColor}
+                                                border="1px"
+                                                borderColor={borderColor}
+                                                justify="center"
+                                                align="center"
+                                                fontWeight="bold"
+                                            >
+                                                {token.symbol?.charAt(0) || '?'}
+                                            </Flex>
+                                        )}
+                                        <VStack spacing={0} align="flex-start">
+                                            <Text fontWeight="bold" fontSize="md" color={textColor}>
+                                                {token.symbol}
+                                            </Text>
+                                            <Text fontSize="sm" color={secondaryTextColor}>
+                                                {token.name || token.symbol}
+                                            </Text>
+                                            <Text fontSize="xs" color={secondaryTextColor} mt={0.5}>
+                                                {token.mint.substring(0, 10)}...{token.mint.substring(token.mint.length - 10)}
+                                            </Text>
+                                        </VStack>
+                                    </HStack>
+                                    
+                                    <Text fontWeight="medium" fontSize="md" color={textColor}>
+                                        {token.balance !== undefined 
+                                            ? Number(token.balance).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                            : ''}
+                                    </Text>
+                                </Flex>
+                            ))}
                         </VStack>
-                    </VStack>
+                    ) : (
+                        <Box p={6} textAlign="center">
+                            <Text color={secondaryTextColor}>没有找到匹配的代币</Text>
+                        </Box>
+                    )}
                 </ModalBody>
             </ModalContent>
         </Modal>

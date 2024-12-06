@@ -196,21 +196,51 @@ export const TokenSwap: React.FC = () => {
         }
     };
 
-    // 获取流动性池信息
-    const fetchPoolInfo = async (tokenAMint: string, tokenBMint: string) => {
+    // 获取池子信息
+    const fetchPoolInfo = async (tokenAMint?: string, tokenBMint?: string) => {
+        if (!tokenAMint || !tokenBMint) {
+            console.log('获取池子信息失败: 缺少代币铸币地址');
+            return;
+        }
+
         try {
             setIsLoadingRate(true);
-            
-            // 使用新的函数
+            console.log('开始获取池子信息:', tokenAMint, tokenBMint);
+
+            // 清除旧的计算结果
+            setAmountOut('');
+            setPriceImpact(null);
+            setExchangeRate(null);
+
+           // 使用新的函数
             //const { poolData } = await getPoolInfo(connection, {
             //    tokenPair: [tokenAMint, tokenBMint]
             //});
             const { poolData } = await getPoolInfo(connection, {
                 ammId: "自定义"
             });
-            
-            setPool(poolData);
-            return poolData;
+
+
+            if (poolData) {
+                console.log('池子信息获取成功:', {
+                    baseTokenMint: poolData.poolKeys.baseMint.toString(),
+                    quoteTokenMint: poolData.poolKeys.quoteMint.toString(),
+                    baseReserve: poolData.poolInfo.baseReserve.toString(),
+                    quoteReserve: poolData.poolInfo.quoteReserve.toString()
+                });
+                
+                // 更新池子信息
+                setPool(poolData);
+                return poolData;
+            } else {
+                console.error('获取池子信息失败: 没有找到匹配的池子');
+                toast({
+                    title: "错误",
+                    description: "无法找到这对代币的流动性池",
+                    status: "error",
+                });
+                return null;
+            }
         } catch (error) {
             console.error('获取流动性池信息失败:', error);
             toast({
@@ -305,12 +335,12 @@ export const TokenSwap: React.FC = () => {
             const amountOutFormatted = amountOutBN.toFixed(tokenB.decimals);
             setAmountOut(amountOutFormatted);
             
-            // 计算价格影响
+            // 使用价格影响计算
             const priceImpactValue = calculatePriceImpact(
                 amountInBN,
                 amountOutBN,
-                isBaseToQuote ? baseReserve : quoteReserve,
-                isBaseToQuote ? quoteReserve : baseReserve
+                pool.poolInfo.baseReserve,
+                pool.poolInfo.quoteReserve
             );
             setPriceImpact(priceImpactValue);
             
@@ -425,93 +455,62 @@ export const TokenSwap: React.FC = () => {
         quoteReserve: BN
     ): string => {
         try {
-            // 从TokenAmount获取原始值
+            // 基本检查
+            if (!pool || !tokenA || !tokenB) return '0.00';
+            
+            // 确定输入代币是base还是quote
+            const isTokenABase = tokenA.mint === pool.poolKeys.baseMint.toString();
+            
+            // 根据方向确定正确的储备金
+            const inputReserve = isTokenABase ? baseReserve : quoteReserve;
+            const outputReserve = isTokenABase ? quoteReserve : baseReserve;
+            
+            console.log('价格影响方向:', {
+                tokenAMint: tokenA.mint,
+                baseMint: pool.poolKeys.baseMint.toString(),
+                isTokenABase
+            });
+            
+            // 获取输入和输出金额的原始值
             const amountInRaw = new BN(amountIn.raw.toString());
             const amountOutRaw = new BN(amountOut.raw.toString());
             
-            // 简单日志输出
-            console.log('价格影响计算参数:', {
-                amountInRaw: amountInRaw.toString(),
-                amountOutRaw: amountOutRaw.toString(),
-                baseReserve: baseReserve.toString(),
-                quoteReserve: quoteReserve.toString()
-            });
-            
-            // 计算无滑点情况下的理论输出
-            // 使用当前池子价格计算
-            const spotPrice = quoteReserve.mul(new BN(10000)).div(baseReserve);
-            const theoreticalOut = amountInRaw.mul(spotPrice).div(new BN(10000));
-            
-            console.log('理论输出:', {
-                spotPrice: spotPrice.toString(),
-                theoreticalOut: theoreticalOut.toString()
-            });
-            
-            // 如果理论输出为0，返回0%
-            if (theoreticalOut.isZero()) {
+            // 如果金额太小，直接返回最小影响
+            if (amountInRaw.isZero() || amountOutRaw.isZero()) {
                 return '0.00';
             }
             
-            // 计算差额
-            // 理论输出 - 实际输出
-            let diff: BN;
-            if (theoreticalOut.gt(amountOutRaw)) {
-                // 正常情况：理论输出 > 实际输出
-                diff = theoreticalOut.sub(amountOutRaw);
-                // 价格影响 = (理论输出 - 实际输出) / 理论输出 * 100
-                const impact = diff.mul(new BN(10000)).div(theoreticalOut);
-                const impactPercent = (impact.toNumber() / 100).toFixed(2);
-                
-                console.log('价格影响计算结果:', {
-                    diff: diff.toString(),
-                    impact: impact.toString(),
-                    impactPercent
-                });
-                
-                return impactPercent;
+            // 1. 计算当前池子的无滑点价格
+            const spotPrice = outputReserve.mul(new BN(1000000)).div(inputReserve);
+            
+            // 2. 计算实际执行价格
+            const executionPrice = amountOutRaw.mul(new BN(1000000)).div(amountInRaw);
+            
+            // 3. 计算价格影响
+            let priceImpact;
+            if (spotPrice.gt(executionPrice)) {
+                // 正常情况：无滑点价格 > 执行价格
+                const impact = spotPrice.sub(executionPrice).mul(new BN(10000)).div(spotPrice);
+                priceImpact = (impact.toNumber() / 100).toFixed(2);
             } else {
-                // 有时由于舍入误差，实际输出可能略大于理论输出
-                console.log('理论输出小于实际输出，可能是舍入误差');
-                return '0.00';
+                // 异常情况：可能是数值精度问题
+                priceImpact = '0.00';
             }
-        } catch (error) {
-            console.error('计算价格影响时出错:', error);
-            return '0.00';
-        }
-    };
-
-    // 修改价格影响计算逻辑
-    const calculatePriceImpactAlternative = (
-        inputAmount: BN,
-        outputAmount: BN,
-        inputReserve: BN,
-        outputReserve: BN
-    ): string => {
-        try {
-            // 计算在无滑点情况下的交易价格
-            const spotPrice = outputReserve.mul(new BN(10000)).div(inputReserve);
             
-            // 计算实际交易价格
-            const executionPrice = outputAmount.mul(new BN(10000)).div(inputAmount);
-            
-            // 计算价格影响
-            const priceRatio = spotPrice.mul(new BN(10000)).div(executionPrice);
-            const priceImpact = new BN(10000).sub(priceRatio);
-            
-            const impactPercent = (priceImpact.toNumber() / 100).toFixed(2);
-            
-            console.log('替代价格影响计算:', {
+            console.log('价格影响计算:', {
+                inputReserve: inputReserve.toString(),
+                outputReserve: outputReserve.toString(),
+                amountIn: amountInRaw.toString(),
+                amountOut: amountOutRaw.toString(),
                 spotPrice: spotPrice.toString(),
                 executionPrice: executionPrice.toString(),
-                priceRatio: priceRatio.toString(),
-                priceImpact: priceImpact.toString(),
-                impactPercent
+                priceImpact
             });
             
-            return impactPercent;
+            return priceImpact;
         } catch (error) {
-            console.error('计算替代价格影响时出错:', error);
-            return '0';
+            console.error('计算价格影响时出错:', error);
+            return '0.01';
         }
     };
 
@@ -549,10 +548,18 @@ export const TokenSwap: React.FC = () => {
 
     // 切换代币位置
     const handleSwitch = () => {
+        if (!tokenA || !tokenB) return;
+        
+        const tempToken = tokenA;
         setTokenA(tokenB);
-        setTokenB(tokenA);
+        setTokenB(tempToken);
+        
+        // 清空当前输入和计算结果
         setAmountIn('');
         setAmountOut('');
+        setPriceImpact(null);
+        setExchangeRate(null);
+        
     };
 
     // 选择代币A
@@ -819,6 +826,7 @@ export const TokenSwap: React.FC = () => {
                 balance: newBalance
             });
         }
+        fetchPoolInfo(tokenA?.mint, tokenB?.mint);
     };
 
     return (
