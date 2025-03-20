@@ -217,7 +217,7 @@ export const TokenSwap: React.FC = () => {
             //    tokenPair: [tokenAMint, tokenBMint]
             //});
             const { poolData } = await getPoolInfo(connection, {
-                ammId: "自定义"
+                ammId: "5XsAkLg5scV7SMy7NZ6TaXZ6CcRjhVoxDtFo4TGEz7bW"
             });
 
 
@@ -663,7 +663,7 @@ export const TokenSwap: React.FC = () => {
             console.log('钱包代币账户:', tokenAccounts);
 
             // 使用新的函数
-            const ammId = "自定义";
+            const ammId = "5XsAkLg5scV7SMy7NZ6TaXZ6CcRjhVoxDtFo4TGEz7bW";
             const { poolKeys, poolInfo } = await getPoolInfo(connection, { ammId });
             
             // 创建正确的代币对象

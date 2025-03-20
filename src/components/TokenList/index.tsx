@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
     Box, 
     VStack,
@@ -63,6 +63,8 @@ import {
 import React from 'react';
 
 import { FaExchangeAlt ,FaFire} from 'react-icons/fa';
+import { AddLiquidity } from '../AddLiquidity';
+
 interface TokenMetadataJson {
     name: string;
     symbol: string;
@@ -293,6 +295,8 @@ export const TokenList = ({
     const cancelRef = React.useRef<HTMLButtonElement>(null);
     const [isCreatingPool, setIsCreatingPool] = useState(false);
     const [activeTab, setActiveTab] = useState(0);
+    const [isAddingLiquidity, setIsAddingLiquidity] = useState(false);
+    const [selectedLiquidityToken, setSelectedLiquidityToken] = useState<TokenAccount | null>(null);
 
     const getMetadataAddress = (mintPubkey: PublicKey) => {
         const [metadataAddress] = PublicKey.findProgramAddressSync(
@@ -958,6 +962,22 @@ export const TokenList = ({
                         >
                             销毁
                         </Button>
+                        <Button
+                            size="sm"
+                            colorScheme="green"
+                            leftIcon={<Icon as={FaFire} />}
+                            onClick={() => {
+                                setMintAddress(token.mint);
+                               // 跳转到增加流动性标签页
+                               const tabIndex = 7; // 增加流动性是第七个标签
+                               const tabs = document.querySelectorAll('[role="tab"]');
+                               if (tabs[tabIndex]) {
+                                   (tabs[tabIndex] as HTMLElement).click();
+                               }
+                            }}
+                        >
+                            增加流动性
+                        </Button>
                         </HStack>
                     </VStack>
                 </HStack>
@@ -1093,6 +1113,32 @@ export const TokenList = ({
         }
     };
 
+    // 处理打开增加流动性对话框
+    const handleOpenAddLiquidity = (token: TokenAccount) => {
+        setSelectedLiquidityToken(token);
+        setIsAddingLiquidity(true);
+    };
+
+    // 关闭增加流动性对话框
+    const handleCloseAddLiquidity = () => {
+        setIsAddingLiquidity(false);
+        setSelectedLiquidityToken(null);
+    };
+
+    // 确保代币列表没有重复项
+    const uniqueTokens = useMemo(() => {
+        const seen = new Set();
+        return tokens.filter(token => {
+            // 使用mint地址作为唯一标识
+            const key = token.mint;
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        });
+    }, [tokens]);
+
     return (
         <Box p={4}>
             <VStack spacing={4} align="stretch">
@@ -1129,8 +1175,8 @@ export const TokenList = ({
                             <VStack spacing={4} align="stretch">
                                 {isLoading || error ? (
                                     <LoadingOrErrorView />
-                                ) : tokens.length > 0 ? (
-                                    tokens.map((token) => (
+                                ) : uniqueTokens.length > 0 ? (
+                                    uniqueTokens.map((token) => (
                                         <TokenCard key={token.mint} token={token} />
                                     ))
                                 ) : (
@@ -1284,6 +1330,15 @@ export const TokenList = ({
                     </AlertDialogContent>
                 </AlertDialogOverlay>
             </AlertDialog>
+            {isAddingLiquidity && selectedLiquidityToken && (
+                <AddLiquidity
+                    isOpen={isAddingLiquidity}
+                    onClose={handleCloseAddLiquidity}
+                    token={selectedLiquidityToken}
+                    publicKey={publicKey}
+                    connection={connection}
+                />
+            )}
         </Box>
     );
 }; 

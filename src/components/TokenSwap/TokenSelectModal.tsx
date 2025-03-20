@@ -124,6 +124,7 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
             
             // 获取 SOL 余额
             const solBalance = await connection.getBalance(publicKey);
+            const solBalanceInSol = solBalance / Math.pow(10, 9); // 转换为SOL单位
 
             // 获取其他代币
             const accounts = await connection.getParsedTokenAccountsByOwner(
@@ -135,6 +136,7 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
                 accounts.value
                     .filter(({ account }) => {
                         const mint = account.data.parsed.info.mint;
+                        // 排除wSOL代币，我们会单独添加原生SOL
                         return mint !== excludeToken && 
                                mint !== WSOL_MINT && 
                                Number(account.data.parsed.info.tokenAmount.amount) > 0;
@@ -157,14 +159,16 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
                     })
             );
 
-            // 将 SOL 添加到列表开头
-            setTokens([
+            // 将原生SOL添加到列表开头，不添加wSOL
+            const finalTokens = [
                 {
                     ...SOL_TOKEN,
-                    balance: solBalance
+                    balance: solBalanceInSol // 使用SOL单位
                 },
                 ...tokenList.filter((token): token is TokenInfo => token !== null)
-            ]);
+            ];
+            
+            setTokens(finalTokens);
         } catch (error) {
             console.error('获取代币列表失败:', error);
         } finally {
@@ -178,9 +182,21 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
         }
     }, [isOpen, publicKey]);
 
+    // 在TokenSelectModal中添加过滤逻辑，确保没有重复的代币
+    const uniqueTokens = useMemo(() => {
+        const seen = new Set();
+        return tokens.filter(token => {
+            if (seen.has(token.mint)) {
+                return false;
+            }
+            seen.add(token.mint);
+            return true;
+        });
+    }, [tokens]);
+
     // 搜索过滤逻辑
     useEffect(() => {
-        if (!Array.isArray(tokens)) {
+        if (!Array.isArray(uniqueTokens)) {
             setFilteredTokens([]);
             return;
         }
@@ -188,13 +204,13 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
         if (!searchTerm) {
             setFilteredTokens(
                 excludeToken
-                    ? tokens.filter(t => t.mint !== excludeToken)
-                    : tokens
+                    ? uniqueTokens.filter(t => t.mint !== excludeToken)
+                    : uniqueTokens
             );
             return;
         }
 
-        const filtered = tokens.filter(token => {
+        const filtered = uniqueTokens.filter(token => {
             const searchable = `${token.symbol} ${token.name} ${token.mint}`.toLowerCase();
             return searchable.includes(searchTerm.toLowerCase());
         });
@@ -204,7 +220,7 @@ export const TokenSelectModal: React.FC<TokenSelectModalProps> = ({
                 ? filtered.filter(t => t.mint !== excludeToken)
                 : filtered
         );
-    }, [tokens, searchTerm, excludeToken]);
+    }, [uniqueTokens, searchTerm, excludeToken]);
 
     // 重置搜索
     useEffect(() => {

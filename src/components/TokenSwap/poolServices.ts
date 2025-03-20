@@ -234,7 +234,7 @@ async function findLiquidityPoolByTokenPair(
     // 如果在 devnet 上测试，可以使用默认池
     if (connection.rpcEndpoint.includes('devnet')) {
       console.log('在 devnet 上使用默认测试池');
-      return new PublicKey('自定义');
+      return new PublicKey('5XsAkLg5scV7SMy7NZ6TaXZ6CcRjhVoxDtFo4TGEz7bW');
     }
     
     return null;

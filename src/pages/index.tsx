@@ -10,6 +10,7 @@ import CreatePool from '../components/CreatePool';
 import { BurnToken } from '../components/BurnToken';
 import { FreezeToken } from '../components/FreezeToken';
 import { TokenSwap } from '../components/TokenSwap';
+import { AddLiquidity } from '../components/AddLiquidity';
 
 export default function Home() {
     const { publicKey } = useWallet();
@@ -47,7 +48,8 @@ export default function Home() {
                             <Tab>铸造代币</Tab>
                             <Tab>创建流动性池</Tab>
                             <Tab>销毁代币</Tab>
-                            <Tab>冻结代币</Tab>
+                            <Tab>冻结代币</Tab>                           
+                            <Tab>增加流动性</Tab>
                             <Tab>代币兑换</Tab>
                         </TabList>
 
@@ -95,6 +97,9 @@ export default function Home() {
                             </TabPanel>
                             <TabPanel>
                                 <FreezeToken mintAddress={mintAddress} />
+                            </TabPanel>
+                            <TabPanel>
+                                <AddLiquidity mintAddress={mintAddress} />
                             </TabPanel>
                             <TabPanel>
                                 <TokenSwap />
